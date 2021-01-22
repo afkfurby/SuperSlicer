@@ -11,11 +11,10 @@
 //        class StaticPrintConfig : public StaticConfig
 //            class PrintObjectConfig : public StaticPrintConfig
 //            class PrintRegionConfig : public StaticPrintConfig
-//            class HostConfig : public StaticPrintConfig
 //            class MachineEnvelopeConfig : public StaticPrintConfig
 //            class GCodeConfig : public StaticPrintConfig
 //                class PrintConfig : public MachineEnvelopeConfig, public GCodeConfig
-//                    class FullPrintConfig : PrintObjectConfig,PrintRegionConfig,PrintConfig,HostConfig
+//                    class FullPrintConfig : PrintObjectConfig,PrintRegionConfig,PrintConfig
 //            class SLAPrintObjectConfig : public StaticPrintConfig
 //            class SLAMaterialConfig : public StaticPrintConfig
 //            class SLAPrinterConfig : public StaticPrintConfig
@@ -49,28 +48,54 @@ enum WipeAlgo {
 
 enum GCodeFlavor : uint8_t {
     gcfRepRap,
+    gcfSprinter,
     gcfRepetier,
     gcfTeacup,
     gcfMakerWare,
-    gcfMarlin, 
+    gcfMarlin,
+    gcfLerdge,
     gcfKlipper,
     gcfSailfish,
     gcfMach3,
     gcfMachinekit,
     gcfSmoothie,
-    gcfSprinter,
     gcfNoExtrusion,
- gcfLerdge,
+};
+
+enum class MachineLimitsUsage : uint8_t {
+    EmitToGCode,
+    TimeEstimateOnly,
+    Limits,
+    Ignore,
+    Count,
 };
 
 enum PrintHostType {
-    htOctoPrint, htDuet, htFlashAir, htAstroBox
+    htOctoPrint, htDuet, htFlashAir, htAstroBox, htRepetier
 };
 
-enum InfillPattern {
+enum AuthorizationType {
+    atKeyPassword, atUserPassword
+};
+
+enum InfillPattern : uint8_t{
     ipRectilinear, ipGrid, ipTriangles, ipStars, ipCubic, ipLine, ipConcentric, ipHoneycomb, ip3DHoneycomb,
-    ipGyroid, ipHilbertCurve, ipArchimedeanChords, ipOctagramSpiral, ipSmooth, ipSmoothHilbert, ipSmoothTriple,
-    ipRectiWithPerimeter, ipConcentricGapFill, ipScatteredRectilinear, ipSawtooth, ipRectilinearWGapFill, ipCount
+    ipGyroid, ipHilbertCurve, ipArchimedeanChords, ipOctagramSpiral,
+    ipAdaptiveCubic, ipSupportCubic, 
+    ipSmooth, ipSmoothHilbert, ipSmoothTriple,
+    ipRectiWithPerimeter, ipConcentricGapFill, ipScatteredRectilinear, 
+    ipSawtooth,
+    ipRectilinearWGapFill,
+    ipMonotonic,
+    ipMonotonicWGapFill,
+    ipCount
+};
+
+enum class IroningType {
+	TopSurfaces,
+	TopmostOnly,
+	AllSolid,
+	Count,
 };
 
 enum SupportMaterialPattern {
@@ -78,7 +103,7 @@ enum SupportMaterialPattern {
 };
 
 enum SeamPosition {
-    spRandom, spNearest, spAligned, spRear, spHidden, spCustom
+    spRandom, spNearest, spAligned, spRear, spCustom
 };
 
 enum SLAMaterial {
@@ -96,6 +121,10 @@ enum NoPerimeterUnsupportedAlgo {
     npuaNone, npuaNoPeri, npuaBridges, npuaBridgesOverhangs, npuaFilled,
 };
 
+enum InfillConnection {
+    icConnected, icHoles, icOuterShell, icNotConnected,
+};
+
 enum SupportZDistanceType {
     zdFilament, zdPlane, zdNone,
 };
@@ -109,7 +138,13 @@ enum SLAPillarConnectionMode {
     slapcmZigZag,
     slapcmCross,
     slapcmDynamic
-}; 
+};
+
+enum ZLiftTop {
+    zltAll,
+    zltTop,
+    zltNotTop
+};
 
 template<> inline const t_config_enum_values& ConfigOptionEnum<CompleteObjectSort>::get_enum_values() {
     static t_config_enum_values keys_map;
@@ -161,6 +196,17 @@ template<> inline const t_config_enum_values& ConfigOptionEnum<GCodeFlavor>::get
     return keys_map;
 }
 
+template<> inline const t_config_enum_values& ConfigOptionEnum<MachineLimitsUsage>::get_enum_values() {
+    static t_config_enum_values keys_map;
+    if (keys_map.empty()) {
+        keys_map["emit_to_gcode"]       = int(MachineLimitsUsage::EmitToGCode);
+        keys_map["time_estimate_only"]  = int(MachineLimitsUsage::TimeEstimateOnly);
+        keys_map["limits"]            	= int(MachineLimitsUsage::Limits);
+        keys_map["ignore"]            	= int(MachineLimitsUsage::Ignore);
+    }
+    return keys_map;
+}
+
 template<> inline const t_config_enum_values& ConfigOptionEnum<PrintHostType>::get_enum_values() {
     static t_config_enum_values keys_map;
     if (keys_map.empty()) {
@@ -168,6 +214,16 @@ template<> inline const t_config_enum_values& ConfigOptionEnum<PrintHostType>::g
         keys_map["duet"]            = htDuet;
         keys_map["flashair"]        = htFlashAir;
         keys_map["astrobox"]        = htAstroBox;
+        keys_map["repetier"]        = htRepetier;
+    }
+    return keys_map;
+}
+
+template<> inline const t_config_enum_values& ConfigOptionEnum<AuthorizationType>::get_enum_values() {
+    static t_config_enum_values keys_map;
+    if (keys_map.empty()) {
+        keys_map["key"]             = atKeyPassword;
+        keys_map["user"]            = atUserPassword;
     }
     return keys_map;
 }
@@ -176,6 +232,7 @@ template<> inline const t_config_enum_values& ConfigOptionEnum<InfillPattern>::g
     static t_config_enum_values keys_map;
     if (keys_map.empty()) {
         keys_map["rectilinear"]         = ipRectilinear;
+        keys_map["monotonic"]           = ipMonotonic;
         keys_map["grid"]                = ipGrid;
         keys_map["triangles"]           = ipTriangles;
         keys_map["stars"]               = ipStars;
@@ -193,9 +250,22 @@ template<> inline const t_config_enum_values& ConfigOptionEnum<InfillPattern>::g
         keys_map["smoothtriple"]        = ipSmoothTriple;
         keys_map["smoothhilbert"]       = ipSmoothHilbert;
         keys_map["rectiwithperimeter"]  = ipRectiWithPerimeter;
-        keys_map["scatteredrectilinear"] = ipScatteredRectilinear;
-        keys_map["rectilineargapfill"] = ipRectilinearWGapFill;
+        keys_map["scatteredrectilinear"]= ipScatteredRectilinear;
+        keys_map["rectilineargapfill"]  = ipRectilinearWGapFill;
+        keys_map["monotonicgapfill"]    = ipMonotonicWGapFill;
         keys_map["sawtooth"]            = ipSawtooth;
+        keys_map["adaptivecubic"]       = ipAdaptiveCubic;
+        keys_map["supportcubic"]        = ipSupportCubic;
+    }
+    return keys_map;
+}
+
+template<> inline const t_config_enum_values& ConfigOptionEnum<IroningType>::get_enum_values() {
+    static t_config_enum_values keys_map;
+    if (keys_map.empty()) {
+        keys_map["top"]                 = int(IroningType::TopSurfaces);
+        keys_map["topmost"]             = int(IroningType::TopmostOnly);
+        keys_map["solid"]               = int(IroningType::AllSolid);
     }
     return keys_map;
 }
@@ -214,11 +284,11 @@ template<> inline const t_config_enum_values& ConfigOptionEnum<SeamPosition>::ge
     static t_config_enum_values keys_map;
     if (keys_map.empty()) {
         keys_map["random"]              = spRandom;
-        keys_map["nearest"]             = spHidden;
+        keys_map["nearest"]             = spNearest;
         keys_map["near"]                = spNearest;
         keys_map["aligned"]             = spAligned;
         keys_map["rear"]                = spRear;
-        keys_map["hidden"]              = spHidden;
+        keys_map["hidden"]              = spNearest;
         keys_map["custom"]              = spCustom;
     }
     return keys_map;
@@ -240,6 +310,16 @@ template<> inline const t_config_enum_values& ConfigOptionEnum<NoPerimeterUnsupp
         { "bridges", npuaBridges },
         { "bridgesoverhangs", npuaBridgesOverhangs },
         { "filled", npuaFilled }
+    };
+    return keys_map;
+}
+
+template<> inline const t_config_enum_values& ConfigOptionEnum<InfillConnection>::get_enum_values() {
+    static const t_config_enum_values keys_map = {
+        { "connected", icConnected },
+        { "holes", icHoles },
+        { "outershell", icOuterShell },
+        { "notconnected", icNotConnected }
     };
     return keys_map;
 }
@@ -272,6 +352,15 @@ template<> inline const t_config_enum_values& ConfigOptionEnum<SLAPillarConnecti
     return keys_map;
 }
 
+template<> inline const t_config_enum_values& ConfigOptionEnum<ZLiftTop>::get_enum_values() {
+    static const t_config_enum_values keys_map = {
+        {"everywhere", zltAll},
+        {"onlytop", zltTop},
+        {"nottop", zltNotTop}
+    };
+    return keys_map;
+}
+
 // Defines each and every confiuration option of Slic3r, including the properties of the GUI dialogs.
 // Does not store the actual values, but defines default values.
 class PrintConfigDef : public ConfigDef
@@ -279,7 +368,8 @@ class PrintConfigDef : public ConfigDef
 public:
     PrintConfigDef();
 
-    static void handle_legacy(t_config_option_key &opt_key, std::string &value);
+    static void handle_legacy(t_config_option_key& opt_key, std::string& value);
+    static void to_prusa(t_config_option_key& opt_key, std::string& value, const DynamicConfig& all_conf);
 
     // Array options growing with the number of extruders
     const std::vector<std::string>& extruder_option_keys() const { return m_extruder_option_keys; }
@@ -308,6 +398,9 @@ extern const PrintConfigDef print_config_def;
 
 class StaticPrintConfig;
 
+PrinterTechnology printer_technology(const ConfigBase &cfg);
+// double min_object_distance(const ConfigBase &cfg);
+
 // Slic3r dynamic configuration, used to override the configuration
 // per object, per modification volume or per printing material.
 // The dynamic configuration is also used to store user modifications of the print global parameters,
@@ -319,8 +412,12 @@ class DynamicPrintConfig : public DynamicConfig
 public:
     DynamicPrintConfig() {}
     DynamicPrintConfig(const DynamicPrintConfig &rhs) : DynamicConfig(rhs) {}
+    DynamicPrintConfig(DynamicPrintConfig &&rhs) noexcept : DynamicConfig(std::move(rhs)) {}
     explicit DynamicPrintConfig(const StaticPrintConfig &rhs);
     explicit DynamicPrintConfig(const ConfigBase &rhs) : DynamicConfig(rhs) {}
+
+    DynamicPrintConfig& operator=(const DynamicPrintConfig &rhs) { DynamicConfig::operator=(rhs); return *this; }
+    DynamicPrintConfig& operator=(DynamicPrintConfig &&rhs) noexcept { DynamicConfig::operator=(std::move(rhs)); return *this; }
 
     static DynamicPrintConfig  full_print_config();
     static DynamicPrintConfig* new_from_defaults_keys(const std::vector<std::string> &keys);
@@ -328,7 +425,7 @@ public:
     // Overrides ConfigBase::def(). Static configuration definition. Any value stored into this ConfigBase shall have its definition here.
     const ConfigDef*    def() const override { return &print_config_def; }
 
-    void                normalize();
+    void                normalize_fdm();
 
     void 				set_num_extruders(unsigned int num_extruders);
 
@@ -343,15 +440,10 @@ public:
     // handle_legacy() is called internally by set_deserialize().
     void                handle_legacy(t_config_option_key &opt_key, std::string &value) const override
         { PrintConfigDef::handle_legacy(opt_key, value); }
-};
 
-template<typename CONFIG>
-void normalize_and_apply_config(CONFIG &dst, const DynamicPrintConfig &src)
-{
-    DynamicPrintConfig src_normalized(src);
-    src_normalized.normalize();
-    dst.apply(src_normalized, true);
-}
+    void                to_prusa(t_config_option_key& opt_key, std::string& value) const override
+        { PrintConfigDef::to_prusa(opt_key, value, *this); }
+};
 
 class StaticPrintConfig : public StaticConfig
 {
@@ -501,6 +593,7 @@ public:
     ConfigOptionFloat               brim_width;
     ConfigOptionFloat               brim_width_interior;
     ConfigOptionBool                brim_ears;
+    ConfigOptionFloat               brim_ears_detection_length;
     ConfigOptionFloat               brim_ears_max_angle;
     ConfigOptionEnum<InfillPattern> brim_ears_pattern;
     ConfigOptionFloat               brim_offset;
@@ -508,21 +601,21 @@ public:
     ConfigOptionBool                dont_support_bridges;
     ConfigOptionPercent             external_perimeter_cut_corners;
     ConfigOptionBool                exact_last_layer_height;
-    ConfigOptionPercent             external_perimeter_overlap;
     ConfigOptionFloatOrPercent      extrusion_width;
     ConfigOptionFloatOrPercent      first_layer_height;
     ConfigOptionFloat               first_layer_size_compensation;
     ConfigOptionFloat               hole_size_compensation;
+    ConfigOptionFloat               hole_size_threshold;
     ConfigOptionBool                infill_only_where_needed;
     // Force the generation of solid shells between adjacent materials/volumes.
     ConfigOptionBool                interface_shells;
     ConfigOptionFloat               layer_height;
     ConfigOptionFloat               model_precision;
     ConfigOptionPercent             perimeter_bonding;
-    ConfigOptionPercent             perimeter_overlap;
     ConfigOptionInt                 raft_layers;
     ConfigOptionEnum<SeamPosition>  seam_position;
-    ConfigOptionBool                seam_travel;
+    ConfigOptionPercent             seam_angle_cost;
+    ConfigOptionPercent             seam_travel_cost;
 //    ConfigOptionFloat               seam_preferred_direction;
 //    ConfigOptionFloat               seam_preferred_direction_jitter;
     ConfigOptionFloat               slice_closing_radius;
@@ -567,6 +660,7 @@ protected:
         OPT_PTR(brim_width);
         OPT_PTR(brim_width_interior);
         OPT_PTR(brim_ears);
+        OPT_PTR(brim_ears_detection_length);
         OPT_PTR(brim_ears_max_angle);
         OPT_PTR(brim_ears_pattern);
         OPT_PTR(brim_offset);
@@ -574,9 +668,9 @@ protected:
         OPT_PTR(dont_support_bridges);
         OPT_PTR(external_perimeter_cut_corners);
         OPT_PTR(exact_last_layer_height);
-        OPT_PTR(external_perimeter_overlap);
         OPT_PTR(extrusion_width);
         OPT_PTR(hole_size_compensation);
+        OPT_PTR(hole_size_threshold);
         OPT_PTR(first_layer_height);
         OPT_PTR(first_layer_size_compensation);
         OPT_PTR(infill_only_where_needed);
@@ -584,10 +678,10 @@ protected:
         OPT_PTR(layer_height);
         OPT_PTR(model_precision);
         OPT_PTR(perimeter_bonding);
-        OPT_PTR(perimeter_overlap);
         OPT_PTR(raft_layers);
         OPT_PTR(seam_position);
-        OPT_PTR(seam_travel);
+        OPT_PTR(seam_angle_cost);
+        OPT_PTR(seam_travel_cost);
         OPT_PTR(slice_closing_radius);
 //        OPT_PTR(seam_preferred_direction);
 //        OPT_PTR(seam_preferred_direction_jitter);
@@ -635,7 +729,8 @@ public:
     ConfigOptionPercent             bridge_overlap;
     ConfigOptionEnum<InfillPattern> bottom_fill_pattern;
     ConfigOptionFloatOrPercent      bridged_infill_margin;
-    ConfigOptionFloat               bridge_speed; 
+    ConfigOptionFloat               bridge_speed;
+    ConfigOptionFloatOrPercent      bridge_speed_internal;
     ConfigOptionFloat               curve_smoothing_precision;
     ConfigOptionFloat               curve_smoothing_cutoff_dist;
     ConfigOptionFloat               curve_smoothing_angle_convex;
@@ -644,11 +739,12 @@ public:
     ConfigOptionBool                enforce_full_fill_volume;
     ConfigOptionFloatOrPercent      external_infill_margin;
     ConfigOptionFloatOrPercent      external_perimeter_extrusion_width;
+    ConfigOptionPercent             external_perimeter_overlap;
     ConfigOptionFloatOrPercent      external_perimeter_speed;
     ConfigOptionBool                external_perimeters_first;
-    ConfigOptionBool                external_perimeters_vase;
-    ConfigOptionBool                external_perimeters_nothole;
     ConfigOptionBool                external_perimeters_hole;
+    ConfigOptionBool                external_perimeters_nothole;
+    ConfigOptionBool                external_perimeters_vase;
     ConfigOptionBool                extra_perimeters;
     ConfigOptionBool                extra_perimeters_odd_layers;
     ConfigOptionBool                extra_perimeters_overhangs;
@@ -662,25 +758,39 @@ public:
     ConfigOptionFloatOrPercent      fill_smooth_width;
     ConfigOptionBool                gap_fill;
     ConfigOptionFloatOrPercent      gap_fill_min_area;
+    ConfigOptionPercent             gap_fill_overlap;
     ConfigOptionFloat               gap_fill_speed;
+    ConfigOptionFloatOrPercent      infill_anchor;
+    ConfigOptionFloatOrPercent      infill_anchor_max;
     ConfigOptionBool                hole_to_polyhole;
     ConfigOptionInt                 infill_extruder;
     ConfigOptionFloatOrPercent      infill_extrusion_width;
     ConfigOptionInt                 infill_every_layers;
     ConfigOptionFloatOrPercent      infill_overlap;
     ConfigOptionFloat               infill_speed;
-    ConfigOptionBool                infill_not_connected;
+    ConfigOptionEnum<InfillConnection> infill_connection;
+    ConfigOptionEnum<InfillConnection> infill_connection_solid;
+    ConfigOptionEnum<InfillConnection> infill_connection_top;
+    ConfigOptionEnum<InfillConnection> infill_connection_bottom;
     ConfigOptionBool                infill_dense;
     ConfigOptionEnum<DenseInfillAlgo> infill_dense_algo;
     ConfigOptionBool                infill_first;
+    // Ironing options
+    ConfigOptionBool                ironing;
+    ConfigOptionEnum<IroningType>   ironing_type;
+    ConfigOptionPercent             ironing_flowrate;
+    ConfigOptionFloat               ironing_spacing;
+    ConfigOptionFloat               ironing_speed;
+    // milling options
     ConfigOptionFloatOrPercent      milling_after_z;
     ConfigOptionFloatOrPercent      milling_extra_size;
     ConfigOptionBool                milling_post_process;
     ConfigOptionFloat               milling_speed;
     ConfigOptionFloatOrPercent      min_width_top_surface;
     // Detect bridging perimeters
-    ConfigOptionBool                overhangs;
+    ConfigOptionFloatOrPercent      overhangs_speed;
     ConfigOptionFloatOrPercent      overhangs_width;
+    ConfigOptionFloatOrPercent      overhangs_width_speed;
     ConfigOptionBool                overhangs_reverse;
     ConfigOptionFloatOrPercent      overhangs_reverse_threshold;
     ConfigOptionEnum<NoPerimeterUnsupportedAlgo> no_perimeter_unsupported_algo;
@@ -688,18 +798,23 @@ public:
     ConfigOptionFloatOrPercent      perimeter_extrusion_width;
     ConfigOptionBool                perimeter_loop;
     ConfigOptionEnum<SeamPosition>  perimeter_loop_seam;
+    ConfigOptionPercent             perimeter_overlap;
     ConfigOptionFloat               perimeter_speed;
     // Total number of perimeters.
     ConfigOptionInt                 perimeters;
     ConfigOptionPercent             print_extrusion_multiplier;
+    ConfigOptionFloat               print_retract_length;
+    ConfigOptionFloat               print_retract_lift;
     ConfigOptionFloatOrPercent      small_perimeter_speed;
+    ConfigOptionFloatOrPercent      small_perimeter_min_length;
+    ConfigOptionFloatOrPercent      small_perimeter_max_length;
     ConfigOptionEnum<InfillPattern> solid_fill_pattern;
     ConfigOptionFloat               solid_infill_below_area;
     ConfigOptionInt                 solid_infill_extruder;
     ConfigOptionFloatOrPercent      solid_infill_extrusion_width;
     ConfigOptionInt                 solid_infill_every_layers;
     ConfigOptionFloatOrPercent      solid_infill_speed;
-    // Detect thin walls.
+    ConfigOptionInt                 print_temperature;
     ConfigOptionBool                thin_perimeters;
     ConfigOptionBool                thin_perimeters_all;
     ConfigOptionBool                thin_walls;
@@ -725,6 +840,7 @@ protected:
         OPT_PTR(bottom_fill_pattern);
         OPT_PTR(bridged_infill_margin);
         OPT_PTR(bridge_speed);
+        OPT_PTR(bridge_speed_internal);
         OPT_PTR(curve_smoothing_precision);
         OPT_PTR(curve_smoothing_cutoff_dist);
         OPT_PTR(curve_smoothing_angle_convex);
@@ -733,11 +849,12 @@ protected:
         OPT_PTR(enforce_full_fill_volume);
         OPT_PTR(external_infill_margin);
         OPT_PTR(external_perimeter_extrusion_width);
+        OPT_PTR(external_perimeter_overlap);
         OPT_PTR(external_perimeter_speed);
         OPT_PTR(external_perimeters_first);
-        OPT_PTR(external_perimeters_vase);
-        OPT_PTR(external_perimeters_nothole);
         OPT_PTR(external_perimeters_hole);
+        OPT_PTR(external_perimeters_nothole);
+        OPT_PTR(external_perimeters_vase);
         OPT_PTR(extra_perimeters);
         OPT_PTR(extra_perimeters_odd_layers);
         OPT_PTR(extra_perimeters_overhangs);
@@ -751,7 +868,10 @@ protected:
         OPT_PTR(fill_smooth_width);
         OPT_PTR(gap_fill);
         OPT_PTR(gap_fill_min_area);
+        OPT_PTR(gap_fill_overlap);
         OPT_PTR(gap_fill_speed);
+        OPT_PTR(infill_anchor);
+        OPT_PTR(infill_anchor_max);
         OPT_PTR(hole_to_polyhole);
         OPT_PTR(infill_extruder);
         OPT_PTR(infill_extrusion_width);
@@ -759,33 +879,48 @@ protected:
         OPT_PTR(infill_overlap);
         OPT_PTR(infill_speed);
         OPT_PTR(infill_dense);
-        OPT_PTR(infill_not_connected);
+        OPT_PTR(infill_connection);
+        OPT_PTR(infill_connection_solid);
+        OPT_PTR(infill_connection_top);
+        OPT_PTR(infill_connection_bottom);
         OPT_PTR(infill_dense_algo);
         OPT_PTR(infill_first);
+        OPT_PTR(ironing);
+        OPT_PTR(ironing_type);
+        OPT_PTR(ironing_flowrate);
+        OPT_PTR(ironing_spacing);
+        OPT_PTR(ironing_speed);
         OPT_PTR(milling_after_z);
         OPT_PTR(milling_extra_size);
         OPT_PTR(milling_post_process);
         OPT_PTR(milling_speed);
         OPT_PTR(min_width_top_surface);
-        OPT_PTR(overhangs);
+        OPT_PTR(overhangs_speed);
         OPT_PTR(overhangs_width);
+        OPT_PTR(overhangs_width_speed);
         OPT_PTR(overhangs_reverse);
         OPT_PTR(overhangs_reverse_threshold);
-		OPT_PTR(no_perimeter_unsupported_algo);
+        OPT_PTR(no_perimeter_unsupported_algo);
         OPT_PTR(perimeter_extruder);
         OPT_PTR(perimeter_extrusion_width);
         OPT_PTR(perimeter_loop);
         OPT_PTR(perimeter_loop_seam);
+        OPT_PTR(perimeter_overlap);
         OPT_PTR(perimeter_speed);
         OPT_PTR(perimeters);
         OPT_PTR(print_extrusion_multiplier);
+        OPT_PTR(print_retract_length);
+        OPT_PTR(print_retract_lift);
         OPT_PTR(small_perimeter_speed);
+        OPT_PTR(small_perimeter_min_length);
+        OPT_PTR(small_perimeter_max_length);
         OPT_PTR(solid_fill_pattern);
         OPT_PTR(solid_infill_below_area);
         OPT_PTR(solid_infill_extruder);
         OPT_PTR(solid_infill_extrusion_width);
         OPT_PTR(solid_infill_every_layers);
         OPT_PTR(solid_infill_speed);
+        OPT_PTR(print_temperature);
         OPT_PTR(thin_perimeters);
         OPT_PTR(thin_perimeters_all);
         OPT_PTR(thin_walls);
@@ -805,6 +940,8 @@ class MachineEnvelopeConfig : public StaticPrintConfig
 {
     STATIC_PRINT_CONFIG_CACHE(MachineEnvelopeConfig)
 public:
+	// Allowing the machine limits to be completely ignored or used just for time estimator.
+    ConfigOptionEnum<MachineLimitsUsage> machine_limits_usage;
     // M201 X... Y... Z... E... [mm/sec^2]
     ConfigOptionFloats              machine_max_acceleration_x;
     ConfigOptionFloats              machine_max_acceleration_y;
@@ -834,6 +971,7 @@ public:
 protected:
     void initialize(StaticCacheBase &cache, const char *base_ptr)
     {
+        OPT_PTR(machine_limits_usage);
         OPT_PTR(machine_max_acceleration_x);
         OPT_PTR(machine_max_acceleration_y);
         OPT_PTR(machine_max_acceleration_z);
@@ -864,13 +1002,19 @@ public:
     ConfigOptionFloats              deretract_speed;
     ConfigOptionString              end_gcode;
     ConfigOptionStrings             end_filament_gcode;
+    ConfigOptionPercents            extruder_fan_offset;
+    ConfigOptionFloats              extruder_temperature_offset;
     ConfigOptionString              extrusion_axis;
     ConfigOptionFloats              extrusion_multiplier;
+    ConfigOptionFloat               fan_kickstart;
+    ConfigOptionBool                fan_speedup_overhangs;
     ConfigOptionFloat               fan_speedup_time;
     ConfigOptionFloats              filament_cost;
     ConfigOptionFloats              filament_density;
     ConfigOptionFloats              filament_diameter;
     ConfigOptionBools               filament_soluble;
+    ConfigOptionFloats              filament_max_speed;
+    ConfigOptionFloats              filament_spool_weight;
     ConfigOptionFloats              filament_max_volumetric_speed;
     ConfigOptionFloats              filament_max_wipe_tower_speed;
     ConfigOptionStrings             filament_type;
@@ -917,7 +1061,8 @@ public:
     ConfigOptionFloats              retract_lift;
     ConfigOptionFloats              retract_lift_above;
     ConfigOptionFloats              retract_lift_below;
-    ConfigOptionBools               retract_lift_not_last_layer;
+    ConfigOptionBools               retract_lift_first_layer;
+    ConfigOptionStrings             retract_lift_top;
     ConfigOptionFloats              retract_restart_extra;
     ConfigOptionFloats              retract_restart_extra_toolchange;
     ConfigOptionFloats              retract_speed;
@@ -926,6 +1071,7 @@ public:
     ConfigOptionBool                single_extruder_multi_material;
     ConfigOptionBool                single_extruder_multi_material_priming;
     ConfigOptionBool                wipe_tower_no_sparse_layers;
+    ConfigOptionStrings             tool_name;
     ConfigOptionString              toolchange_gcode;
     ConfigOptionFloat               travel_speed;
     ConfigOptionBool                use_firmware_retraction;
@@ -945,6 +1091,9 @@ public:
     ConfigOptionFloats              wipe_extra_perimeter;
     ConfigOptionEnum<WipeAlgo>      wipe_advanced_algo;
     ConfigOptionFloat               z_step;
+    ConfigOptionString              color_change_gcode;
+    ConfigOptionString              pause_print_gcode;
+    ConfigOptionString              template_custom_gcode;
 
     std::string get_extrusion_axis() const
     {
@@ -961,14 +1110,20 @@ protected:
         OPT_PTR(deretract_speed);
         OPT_PTR(end_gcode);
         OPT_PTR(end_filament_gcode);
+        OPT_PTR(extruder_fan_offset);
+        OPT_PTR(extruder_temperature_offset);
         OPT_PTR(extrusion_axis);
         OPT_PTR(extrusion_multiplier);
+        OPT_PTR(fan_kickstart);
+        OPT_PTR(fan_speedup_overhangs);
         OPT_PTR(fan_speedup_time);
         OPT_PTR(filament_diameter);
         OPT_PTR(filament_density);
         OPT_PTR(filament_type);
         OPT_PTR(filament_soluble);
         OPT_PTR(filament_cost);
+        OPT_PTR(filament_max_speed);
+        OPT_PTR(filament_spool_weight);
         OPT_PTR(filament_max_volumetric_speed);
         OPT_PTR(filament_max_wipe_tower_speed);
         OPT_PTR(filament_loading_speed);
@@ -1014,7 +1169,8 @@ protected:
         OPT_PTR(retract_lift);
         OPT_PTR(retract_lift_above);
         OPT_PTR(retract_lift_below);
-        OPT_PTR(retract_lift_not_last_layer);
+        OPT_PTR(retract_lift_first_layer);
+        OPT_PTR(retract_lift_top);
         OPT_PTR(retract_restart_extra);
         OPT_PTR(retract_restart_extra_toolchange);
         OPT_PTR(retract_speed);
@@ -1023,6 +1179,7 @@ protected:
         OPT_PTR(wipe_tower_no_sparse_layers);
         OPT_PTR(start_gcode);
         OPT_PTR(start_filament_gcode);
+        OPT_PTR(tool_name);
         OPT_PTR(toolchange_gcode);
         OPT_PTR(travel_speed);
         OPT_PTR(use_firmware_retraction);
@@ -1042,6 +1199,9 @@ protected:
         OPT_PTR(wipe_advanced_algo);
         OPT_PTR(wipe_extra_perimeter);
         OPT_PTR(z_step);
+        OPT_PTR(color_change_gcode);
+        OPT_PTR(pause_print_gcode);
+        OPT_PTR(template_custom_gcode);
     }
 };
 
@@ -1056,10 +1216,11 @@ public:
 
     ConfigOptionBool                allow_empty_layers;
     ConfigOptionBool                avoid_crossing_perimeters;
-    ConfigOptionBool                avoid_crossing_not_first_layer;
+
+    ConfigOptionBool                avoid_crossing_not_first_layer;    ConfigOptionFloatOrPercent      avoid_crossing_perimeters_max_detour;
     ConfigOptionPoints              bed_shape;
     ConfigOptionInts                bed_temperature;
-    ConfigOptionFloat               bridge_acceleration;
+    ConfigOptionFloatOrPercent      bridge_acceleration;
     ConfigOptionInts                bridge_fan_speed;
     ConfigOptionInts                chamber_temperature;
     ConfigOptionBool                complete_objects;
@@ -1067,7 +1228,7 @@ public:
     ConfigOptionEnum<CompleteObjectSort> complete_objects_sort;
     ConfigOptionFloats              colorprint_heights;
     ConfigOptionBools               cooling;
-    ConfigOptionFloat               default_acceleration;
+    ConfigOptionFloatOrPercent      default_acceleration;
     ConfigOptionInts                disable_fan_first_layers;
     ConfigOptionFloat               duplicate_distance;
     ConfigOptionInts                external_perimeter_fan_speed;
@@ -1080,14 +1241,15 @@ public:
     ConfigOptionStrings             filament_colour;
     ConfigOptionStrings             filament_notes;
     ConfigOptionPercents            filament_shrink;
-    ConfigOptionFloat               first_layer_acceleration;
+    ConfigOptionFloatOrPercent      first_layer_acceleration;
     ConfigOptionInts                first_layer_bed_temperature;
     ConfigOptionFloatOrPercent      first_layer_extrusion_width;
     ConfigOptionPercent             first_layer_flow_ratio;
     ConfigOptionFloatOrPercent      first_layer_speed;
     ConfigOptionFloatOrPercent      first_layer_infill_speed;
     ConfigOptionInts                first_layer_temperature;
-    ConfigOptionFloat               infill_acceleration;
+    ConfigOptionInts                full_fan_speed_layer;
+    ConfigOptionFloatOrPercent      infill_acceleration;
     ConfigOptionInts                max_fan_speed;
     ConfigOptionFloats              max_layer_height;
     ConfigOptionFloat               max_print_height;
@@ -1106,9 +1268,8 @@ public:
     ConfigOptionBool                only_retract_when_crossing_perimeters;
     ConfigOptionBool                ooze_prevention;
     ConfigOptionString              output_filename_format;
-    ConfigOptionFloat               perimeter_acceleration;
+    ConfigOptionFloatOrPercent      perimeter_acceleration;
     ConfigOptionStrings             post_process;
-    ConfigOptionBool                print_machine_envelope;
     ConfigOptionString              printer_model;
     ConfigOptionString              printer_notes;
     ConfigOptionFloat               resolution;
@@ -1125,6 +1286,9 @@ public:
     ConfigOptionInts                temperature;
     ConfigOptionInt                 threads;
     ConfigOptionPoints              thumbnails;
+    ConfigOptionString              thumbnails_color;
+    ConfigOptionBool                thumbnails_custom_color;
+    ConfigOptionBool                thumbnails_with_bed;
     ConfigOptionPercent             time_estimation_compensation;
     ConfigOptionInts                top_fan_speed;
     ConfigOptionBools               wipe;
@@ -1148,7 +1312,7 @@ protected:
         this->GCodeConfig::initialize(cache, base_ptr);
         OPT_PTR(allow_empty_layers);
         OPT_PTR(avoid_crossing_perimeters);
-        OPT_PTR(avoid_crossing_not_first_layer);
+        OPT_PTR(avoid_crossing_not_first_layer);        OPT_PTR(avoid_crossing_perimeters_max_detour);
         OPT_PTR(bed_shape);
         OPT_PTR(bed_temperature);
         OPT_PTR(bridge_acceleration);
@@ -1179,6 +1343,7 @@ protected:
         OPT_PTR(first_layer_speed);
         OPT_PTR(first_layer_infill_speed);
         OPT_PTR(first_layer_temperature);
+        OPT_PTR(full_fan_speed_layer);
         OPT_PTR(infill_acceleration);
         OPT_PTR(max_fan_speed);
         OPT_PTR(max_layer_height);
@@ -1200,7 +1365,6 @@ protected:
         OPT_PTR(output_filename_format);
         OPT_PTR(perimeter_acceleration);
         OPT_PTR(post_process);
-        OPT_PTR(print_machine_envelope);
         OPT_PTR(printer_model);
         OPT_PTR(printer_notes);
         OPT_PTR(resolution);
@@ -1217,6 +1381,9 @@ protected:
         OPT_PTR(temperature);
         OPT_PTR(threads);
         OPT_PTR(thumbnails);
+        OPT_PTR(thumbnails_color);
+        OPT_PTR(thumbnails_custom_color);
+        OPT_PTR(thumbnails_with_bed);
         OPT_PTR(time_estimation_compensation);
         OPT_PTR(top_fan_speed);
         OPT_PTR(wipe);
@@ -1234,38 +1401,14 @@ protected:
     }
 };
 
-class HostConfig : public StaticPrintConfig
-{
-    STATIC_PRINT_CONFIG_CACHE(HostConfig)
-public:
-    ConfigOptionEnum<PrintHostType> host_type;
-    ConfigOptionString              print_host;
-    ConfigOptionString              printhost_apikey;
-    ConfigOptionString              printhost_cafile;
-    ConfigOptionString              serial_port;
-    ConfigOptionInt                 serial_speed;
-
-protected:
-    void initialize(StaticCacheBase &cache, const char *base_ptr)
-    {
-        OPT_PTR(host_type);
-        OPT_PTR(print_host);
-        OPT_PTR(printhost_apikey);
-        OPT_PTR(printhost_cafile);
-        OPT_PTR(serial_port);
-        OPT_PTR(serial_speed);
-    }
-};
-
 // This object is mapped to Perl as Slic3r::Config::Full.
 class FullPrintConfig :
     public PrintObjectConfig,
     public PrintRegionConfig,
-    public PrintConfig,
-    public HostConfig
+    public PrintConfig
 {
     STATIC_PRINT_CONFIG_CACHE_DERIVED(FullPrintConfig)
-    FullPrintConfig() : PrintObjectConfig(0), PrintRegionConfig(0), PrintConfig(0), HostConfig(0) { initialize_cache(); *this = s_cache_FullPrintConfig.defaults(); }
+    FullPrintConfig() : PrintObjectConfig(0), PrintRegionConfig(0), PrintConfig(0) { initialize_cache(); *this = s_cache_FullPrintConfig.defaults(); }
 
 public:
     // Validate the FullPrintConfig. Returns an empty string on success, otherwise an error message is returned.
@@ -1273,13 +1416,12 @@ public:
 
 protected:
     // Protected constructor to be called to initialize ConfigCache::m_default.
-    FullPrintConfig(int) : PrintObjectConfig(0), PrintRegionConfig(0), PrintConfig(0), HostConfig(0) {}
+    FullPrintConfig(int) : PrintObjectConfig(0), PrintRegionConfig(0), PrintConfig(0) {}
     void initialize(StaticCacheBase &cache, const char *base_ptr)
     {
         this->PrintObjectConfig::initialize(cache, base_ptr);
         this->PrintRegionConfig::initialize(cache, base_ptr);
         this->PrintConfig      ::initialize(cache, base_ptr);
-        this->HostConfig       ::initialize(cache, base_ptr);
     }
 };
 
@@ -1322,6 +1464,10 @@ public:
 
     // Radius in mm of the support pillars.
     ConfigOptionFloat support_pillar_diameter /*= 0.8*/;
+
+    // The percentage of smaller pillars compared to the normal pillar diameter
+    // which are used in problematic areas where a normal pilla cannot fit.
+    ConfigOptionPercent support_small_pillar_diameter_percent;
     
     // How much bridge (supporting another pinhead) can be placed on a pillar.
     ConfigOptionInt   support_max_bridges_on_pillar;
@@ -1446,6 +1592,7 @@ protected:
         OPT_PTR(support_head_penetration);
         OPT_PTR(support_head_width);
         OPT_PTR(support_pillar_diameter);
+        OPT_PTR(support_small_pillar_diameter_percent);
         OPT_PTR(support_max_bridges_on_pillar);
         OPT_PTR(support_pillar_connection_mode);
         OPT_PTR(support_buildplate_only);
@@ -1531,6 +1678,11 @@ public:
     ConfigOptionFloat                       max_exposure_time;
     ConfigOptionFloat                       min_initial_exposure_time;
     ConfigOptionFloat                       max_initial_exposure_time;
+    ConfigOptionPoints                      thumbnails;
+    ConfigOptionString                      thumbnails_color;
+    ConfigOptionBool                        thumbnails_custom_color;
+    ConfigOptionBool                        thumbnails_with_bed;
+    ConfigOptionBool                        thumbnails_with_support;
 protected:
     void initialize(StaticCacheBase &cache, const char *base_ptr)
     {
@@ -1556,6 +1708,11 @@ protected:
         OPT_PTR(max_exposure_time);
         OPT_PTR(min_initial_exposure_time);
         OPT_PTR(max_initial_exposure_time);
+        OPT_PTR(thumbnails);
+        OPT_PTR(thumbnails_color);
+        OPT_PTR(thumbnails_custom_color);
+        OPT_PTR(thumbnails_with_bed);
+        OPT_PTR(thumbnails_with_support);
     }
 };
 
@@ -1643,6 +1800,101 @@ private:
         ~PrintAndCLIConfigDef() { this->options.clear(); }
     };
     static PrintAndCLIConfigDef s_def;
+};
+
+Points get_bed_shape(const DynamicPrintConfig &cfg);
+Points get_bed_shape(const PrintConfig &cfg);
+Points get_bed_shape(const SLAPrinterConfig &cfg);
+
+// ModelConfig is a wrapper around DynamicPrintConfig with an addition of a timestamp.
+// Each change of ModelConfig is tracked by assigning a new timestamp from a global counter.
+// The counter is used for faster synchronization of the background slicing thread
+// with the front end by skipping synchronization of equal config dictionaries. 
+// The global counter is also used for avoiding unnecessary serialization of config 
+// dictionaries when taking an Undo snapshot.
+//
+// The global counter is NOT thread safe, therefore it is recommended to use ModelConfig from
+// the main thread only.
+// 
+// As there is a global counter and it is being increased with each change to any ModelConfig,
+// if two ModelConfig dictionaries differ, they should differ with their timestamp as well.
+// Therefore copying the ModelConfig including its timestamp is safe as there is no harm
+// in having multiple ModelConfig with equal timestamps as long as their dictionaries are equal.
+//
+// The timestamp is used by the Undo/Redo stack. As zero timestamp means invalid timestamp
+// to the Undo/Redo stack (zero timestamp means the Undo/Redo stack needs to serialize and
+// compare serialized data for differences), zero timestamp shall never be used.
+// Timestamp==1 shall only be used for empty dictionaries.
+class ModelConfig
+{
+public:
+    void         clear() { m_data.clear(); m_timestamp = 1; }
+
+    void         assign_config(const ModelConfig &rhs) {
+        if (m_timestamp != rhs.m_timestamp) {
+            m_data      = rhs.m_data;
+            m_timestamp = rhs.m_timestamp;
+        }
+    }
+    void         assign_config(ModelConfig &&rhs) {
+        if (m_timestamp != rhs.m_timestamp) {
+            m_data      = std::move(rhs.m_data);
+            m_timestamp = rhs.m_timestamp;
+            rhs.clear();
+        }
+    }
+
+    // Modification of the ModelConfig is not thread safe due to the global timestamp counter!
+    // Don't call modification methods from the back-end!
+    // Assign methods don't assign if src==dst to not having to bump the timestamp in case they are equal.
+    void         assign_config(const DynamicPrintConfig &rhs)  { if (m_data != rhs) { m_data = rhs; this->touch(); } }
+    void         assign_config(DynamicPrintConfig &&rhs)       { if (m_data != rhs) { m_data = std::move(rhs); this->touch(); } }
+    void         apply(const ModelConfig &other, bool ignore_nonexistent = false) { this->apply(other.get(), ignore_nonexistent); }
+    void         apply(const ConfigBase &other, bool ignore_nonexistent = false) { m_data.apply_only(other, other.keys(), ignore_nonexistent); this->touch(); }
+    void         apply_only(const ModelConfig &other, const t_config_option_keys &keys, bool ignore_nonexistent = false) { this->apply_only(other.get(), keys, ignore_nonexistent); }
+    void         apply_only(const ConfigBase &other, const t_config_option_keys &keys, bool ignore_nonexistent = false) { m_data.apply_only(other, keys, ignore_nonexistent); this->touch(); }
+    bool         set_key_value(const std::string &opt_key, ConfigOption *opt) { bool out = m_data.set_key_value(opt_key, opt); this->touch(); return out; }
+    template<typename T>
+    void         set(const std::string &opt_key, T value) { m_data.set(opt_key, value, true); this->touch(); }
+    void         set_deserialize(const t_config_option_key &opt_key, const std::string &str, bool append = false)
+        { m_data.set_deserialize(opt_key, str, append); this->touch(); }
+    bool         erase(const t_config_option_key &opt_key) { bool out = m_data.erase(opt_key); if (out) this->touch(); return out; }
+
+    // Getters are thread safe.
+    // The following implicit conversion breaks the Cereal serialization.
+//    operator const DynamicPrintConfig&() const throw() { return this->get(); }
+    const DynamicPrintConfig&   get() const throw() { return m_data; }
+    bool                        empty() const throw() { return m_data.empty(); }
+    size_t                      size() const throw() { return m_data.size(); }
+    auto                        cbegin() const { return m_data.cbegin(); }
+    auto                        cend() const { return m_data.cend(); }
+    t_config_option_keys        keys() const { return m_data.keys(); }
+    bool                        has(const t_config_option_key &opt_key) const { return m_data.has(opt_key); }
+    const ConfigOption*         option(const t_config_option_key &opt_key) const { return m_data.option(opt_key); }
+    int                         opt_int(const t_config_option_key &opt_key) const { return m_data.opt_int(opt_key); }
+    int                         extruder() const { return opt_int("extruder"); }
+    double                      opt_float(const t_config_option_key &opt_key) const { return m_data.opt_float(opt_key); }
+    std::string                 opt_serialize(const t_config_option_key &opt_key) const { return m_data.opt_serialize(opt_key); }
+
+    // Return an optional timestamp of this object.
+    // If the timestamp returned is non-zero, then the serialization framework will
+    // only save this object on the Undo/Redo stack if the timestamp is different
+    // from the timestmap of the object at the top of the Undo / Redo stack.
+    virtual uint64_t    timestamp() const throw() { return m_timestamp; }
+    bool                timestamp_matches(const ModelConfig &rhs) const throw() { return m_timestamp == rhs.m_timestamp; }
+    // Not thread safe! Should not be called from other than the main thread!
+    void                touch() { m_timestamp = ++ s_last_timestamp; }
+
+    void                to_prusa(t_config_option_key& opt_key, std::string& value) const
+        { m_data.to_prusa(opt_key, value); }
+private:
+    friend class cereal::access;
+    template<class Archive> void serialize(Archive& ar) { ar(m_timestamp); ar(m_data); }
+
+    uint64_t                    m_timestamp { 1 };
+    DynamicPrintConfig          m_data;
+
+    static uint64_t             s_last_timestamp;
 };
 
 } // namespace Slic3r

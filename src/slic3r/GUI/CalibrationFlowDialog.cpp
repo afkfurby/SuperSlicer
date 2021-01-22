@@ -1,8 +1,12 @@
 #include "CalibrationFlowDialog.hpp"
 #include "I18N.hpp"
+#include "libslic3r/Model.hpp"
 #include "libslic3r/Utils.hpp"
+#include "libslic3r/AppConfig.hpp"
+#include "Jobs/ArrangeJob.hpp"
 #include "GUI.hpp"
 #include "GUI_ObjectList.hpp"
+#include "Plater.hpp"
 #include "Tab.hpp"
 #include <wx/scrolwin.h>
 #include <wx/display.h>
@@ -35,6 +39,13 @@ void CalibrationFlowDialog::create_geometry(float start, float delta) {
     Plater* plat = this->main_frame->plater();
     Model& model = plat->model();
     plat->reset();
+
+    bool autocenter = gui_app->app_config->get("autocenter") == "1";
+    if (autocenter) {
+        //disable auto-center for this calibration.
+        gui_app->app_config->set("autocenter", "0");
+    }
+
     std::vector<size_t> objs_idx = plat->load_files(std::vector<std::string>{
             Slic3r::resources_dir()+"/calibration/filament_flow/filament_flow_test_cube.amf",
             Slic3r::resources_dir()+"/calibration/filament_flow/filament_flow_test_cube.amf",
@@ -91,6 +102,7 @@ void CalibrationFlowDialog::create_geometry(float start, float delta) {
     }
 
     /// --- translate ---;
+    bool has_to_arrange = false;
     const ConfigOptionFloat* extruder_clearance_radius = print_config->option<ConfigOptionFloat>("extruder_clearance_radius");
     const ConfigOptionPoints* bed_shape = printerConfig->option<ConfigOptionPoints>("bed_shape");
     const double brim_width = nozzle_diameter * 3.5;
@@ -103,8 +115,10 @@ void CalibrationFlowDialog::create_geometry(float start, float delta) {
     model.objects[objs_idx[2]]->translate({ bed_min.x() + bed_size.x() / 2 - offsetx / 2, bed_min.y() + bed_size.y() / 2 + offsety, 0 });
     model.objects[objs_idx[3]]->translate({ bed_min.x() + bed_size.x() / 2 + offsetx / 2, bed_min.y() + bed_size.y() / 2 - offsety, 0 });
     model.objects[objs_idx[4]]->translate({ bed_min.x() + bed_size.x() / 2 + offsetx / 2, bed_min.y() + bed_size.y() / 2 + offsety, 0 });
-    //TODO: if not enough space, forget about complete_objects
 
+    // if not enough space, forget about complete_objects
+    if (bed_size.y() < offsety * 2 + 25 * xyScale + brim_width || bed_size.x() < offsetx + 25 * xyScale + brim_width)
+        has_to_arrange = true;
 
     /// --- main config, please modify object config when possible ---
     DynamicPrintConfig new_print_config = *print_config; //make a copy
@@ -147,9 +161,25 @@ void CalibrationFlowDialog::create_geometry(float start, float delta) {
     ObjectList* obj = this->gui_app->obj_list();
     obj->update_after_undo_redo();
 
+    // arrange if needed, after new settings, to take them into account
+    if (has_to_arrange) {
+        //update print config (done at reslice but we need it here)
+        if (plat->printer_technology() == ptFFF)
+            plat->fff_print().apply(plat->model(), *plat->config());
+        std::shared_ptr<ProgressIndicatorStub> fake_statusbar = std::make_shared<ProgressIndicatorStub>();
+        ArrangeJob arranger(std::dynamic_pointer_cast<ProgressIndicator>(fake_statusbar), plat);
+        arranger.prepare_all();
+        arranger.process();
+        arranger.finalize();
+    }
 
     plat->reslice();
     plat->select_view_3D("Preview");
+
+    if (autocenter) {
+        //re-enable auto-center after this calibration.
+        gui_app->app_config->set("autocenter", "1");
+    }
 }
 
 } // namespace GUI

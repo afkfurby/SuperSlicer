@@ -2,6 +2,7 @@
 #include "Line.hpp"
 #include "MultiPoint.hpp"
 #include "Int128.hpp"
+#include "BoundingBox.hpp"
 #include <algorithm>
 
 namespace Slic3r {
@@ -44,16 +45,6 @@ Pointf3s transform(const Pointf3s& points, const Transform3d& t)
     return ret_points;
 }
 
-void Point::rotate(double angle)
-{
-    double cur_x = (double)(*this)(0);
-    double cur_y = (double)(*this)(1);
-    double s     = ::sin(angle);
-    double c     = ::cos(angle);
-    (*this)(0) = (coord_t)round(c * cur_x - s * cur_y);
-    (*this)(1) = (coord_t)round(c * cur_y + s * cur_x);
-}
-
 void Point::rotate(double angle, const Point &center)
 {
     double cur_x = (double)(*this)(0);
@@ -83,12 +74,12 @@ int32_t Point::nearest_point_index(const PointConstPtrs &points) const
     for (PointConstPtrs::const_iterator it = points.begin(); it != points.end(); ++it) {
         /* If the X distance of the candidate is > than the total distance of the
            best previous candidate, we know we don't want it */
-        double d = sqr<double>((*this)(0) - (*it)->x());
+        double d = sqr<double>(double((*this).x() - (*it)->x()));
         if (distance != -1 && d > distance) continue;
         
         /* If the Y distance of the candidate is > than the total distance of the
            best previous candidate, we know we don't want it */
-        d += sqr<double>((*this)(1) - (*it)->y());
+        d += sqr<double>(double((*this).y() - (*it)->y()));
         if (distance != -1 && d > distance) continue;
         
         idx = (int32_t)(it - points.begin());
@@ -103,8 +94,8 @@ int32_t Point::nearest_point_index(const PointConstPtrs &points) const
 /* distance to the closest point of line */
 double
 Point::distance_to(const Line &line) const {
-    const double dx = line.b.x() - line.a.x();
-    const double dy = line.b.y() - line.a.y();
+    const double dx = double(line.b.x() - line.a.x());
+    const double dy = double(line.b.y() - line.a.y());
 
     const double l2 = dx*dx + dy*dy;  // avoid a sqrt
     if (l2 == 0.0) return this->distance_to(line.a);   // line.a == line.b case
@@ -209,6 +200,19 @@ Point Point::projection_onto(const Line &line) const
     return ((line.a - *this).cast<double>().squaredNorm() < (line.b - *this).cast<double>().squaredNorm()) ? line.a : line.b;
 }
 
+BoundingBox get_extents(const Points &pts)
+{ 
+    return BoundingBox(pts);
+}
+
+BoundingBox get_extents(const std::vector<Points> &pts)
+{
+    BoundingBox bbox;
+    for (const Points &p : pts)
+        bbox.merge(get_extents(p));
+    return bbox;
+}
+
 /// This method create a new point on the line defined by this and p2.
 /// The new point is place at position defined by |p2-this| * percent, starting from this
 /// \param percent the proportion of the segment length to place the point
@@ -217,8 +221,8 @@ Point Point::projection_onto(const Line &line) const
 Point Point::interpolate(const double percent, const Point &p2) const
 {
     Point p_out;
-    p_out.x() = this->x()*(1 - percent) + p2.x()*(percent);
-    p_out.y() = this->y()*(1 - percent) + p2.y()*(percent);
+    p_out.x() = coord_t(this->x()*(1 - percent) + p2.x()*(percent));
+    p_out.y() = coord_t(this->y()*(1 - percent) + p2.y()*(percent));
     return p_out;
 }
 

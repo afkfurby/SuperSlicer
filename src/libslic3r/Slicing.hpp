@@ -11,14 +11,15 @@
 
 #include "libslic3r.h"
 #include "Utils.hpp"
-#include "PrintConfig.hpp"
 
 namespace Slic3r
 {
 
 class PrintConfig;
 class PrintObjectConfig;
+class ModelConfig;
 class ModelObject;
+class DynamicPrintConfig;
 
 // little function that return val as a multiple of z_step if z_step is not == 0
 extern coordf_t check_z_step(const coordf_t val,const coordf_t z_step);
@@ -110,33 +111,31 @@ inline bool equal_layering(const SlicingParameters &sp1, const SlicingParameters
 {
     assert(sp1.valid);
     assert(sp2.valid);
-    return  sp1.base_raft_layers                    == sp2.base_raft_layers                     &&
-            sp1.interface_raft_layers               == sp2.interface_raft_layers                &&
-            sp1.base_raft_layer_height              == sp2.base_raft_layer_height               &&
-            sp1.interface_raft_layer_height         == sp2.interface_raft_layer_height          &&
-            sp1.contact_raft_layer_height           == sp2.contact_raft_layer_height            &&
-            sp1.contact_raft_layer_height_bridging  == sp2.contact_raft_layer_height_bridging   &&
-            sp1.layer_height                        == sp2.layer_height                         &&
-            sp1.min_layer_height                    == sp2.min_layer_height                     &&
-            sp1.max_layer_height                    == sp2.max_layer_height                     &&
-//            sp1.max_suport_layer_height             == sp2.max_suport_layer_height              &&
-            sp1.first_print_layer_height            == sp2.first_print_layer_height             &&
-            sp1.first_object_layer_height           == sp2.first_object_layer_height            &&
-            sp1.first_object_layer_bridging         == sp2.first_object_layer_bridging          &&
-            sp1.soluble_interface                   == sp2.soluble_interface                    &&
-            sp1.gap_raft_object                     == sp2.gap_raft_object                      &&
-            sp1.gap_object_support                  == sp2.gap_object_support                   &&
-            sp1.gap_support_object                  == sp2.gap_support_object                   &&
-            sp1.raft_base_top_z                     == sp2.raft_base_top_z                      &&
-            sp1.raft_interface_top_z                == sp2.raft_interface_top_z                 &&
-            sp1.raft_contact_top_z                  == sp2.raft_contact_top_z                   &&
-            sp1.object_print_z_min                  == sp2.object_print_z_min;
+    return  sp1.base_raft_layers                == sp2.base_raft_layers &&
+        sp1.interface_raft_layers               == sp2.interface_raft_layers &&
+        std::abs(sp1.base_raft_layer_height      - sp2.base_raft_layer_height) < EPSILON &&
+        std::abs(sp1.interface_raft_layer_height - sp2.interface_raft_layer_height) < EPSILON &&
+        std::abs(sp1.contact_raft_layer_height   - sp2.contact_raft_layer_height) < EPSILON &&
+        sp1.contact_raft_layer_height_bridging  == sp2.contact_raft_layer_height_bridging &&
+        std::abs(sp1.layer_height                - sp2.layer_height) < EPSILON &&
+        std::abs(sp1.min_layer_height            - sp2.min_layer_height) < EPSILON &&
+        std::abs(sp1.max_layer_height            - sp2.max_layer_height) < EPSILON &&
+        //            sp1.max_suport_layer_height             == sp2.max_suport_layer_height              &&
+        std::abs(sp1.first_print_layer_height    - sp2.first_print_layer_height) < EPSILON &&
+        std::abs(sp1.first_object_layer_height   - sp2.first_object_layer_height) < EPSILON &&
+        sp1.first_object_layer_bridging         == sp2.first_object_layer_bridging &&
+        sp1.soluble_interface                   == sp2.soluble_interface &&
+        std::abs(sp1.gap_raft_object             - sp2.gap_raft_object) < EPSILON &&
+        std::abs(sp1.gap_object_support          - sp2.gap_object_support) < EPSILON &&
+        std::abs(sp1.gap_support_object          - sp2.gap_support_object) < EPSILON &&
+        std::abs(sp1.raft_base_top_z             - sp2.raft_base_top_z) < EPSILON &&
+        std::abs(sp1.raft_interface_top_z        - sp2.raft_interface_top_z) < EPSILON &&
+        std::abs(sp1.raft_contact_top_z          - sp2.raft_contact_top_z) < EPSILON &&
+        std::abs(sp1.object_print_z_min          - sp2.object_print_z_min) < EPSILON;
 }
 
 typedef std::pair<coordf_t,coordf_t> t_layer_height_range;
-typedef std::map<t_layer_height_range, DynamicPrintConfig> t_layer_config_ranges;
-
-extern std::vector<std::pair<t_layer_height_range, coordf_t>> layer_height_ranges(const t_layer_config_ranges &config_ranges);
+typedef std::map<t_layer_height_range, ModelConfig> t_layer_config_ranges;
 
 extern std::vector<coordf_t> layer_height_profile_from_ranges(
     const SlicingParameters     &slicing_params,

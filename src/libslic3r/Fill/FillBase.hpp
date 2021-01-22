@@ -5,6 +5,7 @@
 #include <memory.h>
 #include <float.h>
 #include <stdint.h>
+#include <stdexcept>
 
 #include <type_traits>
 #include <boost/log/trivial.hpp>
@@ -12,6 +13,7 @@
 #include "../libslic3r.h"
 #include "../BoundingBox.hpp"
 #include "../PrintConfig.hpp"
+#include "../Exception.hpp"
 #include "../Utils.hpp"
 #include "../Flow.hpp"
 #include "../ExtrusionEntity.hpp"
@@ -22,49 +24,58 @@ namespace Slic3r {
 class ExPolygon;
 class Surface;
 
+namespace FillAdaptive {
+    struct Octree;
+};
+
+// Infill shall never fail, therefore the error is classified as RuntimeError, not SlicingError.
+class InfillFailedException : public Slic3r::RuntimeError {
+public:
+    InfillFailedException() : Slic3r::RuntimeError("Infill failed") {}
+};
+
 struct FillParams
 {
-    FillParams() { 
-        memset(this, 0, sizeof(FillParams));
-        // Adjustment does not work.
-        dont_adjust = true;
-        flow_mult = 1.f;
-        fill_exactly = false;
-        role = erNone;
-        flow = NULL;
-        config = NULL;
-    }
-
     bool        full_infill() const { return density > 0.9999f && density < 1.0001f; }
+    // Don't connect the fill lines around the inner perimeter.
+    bool        dont_connect() const { return connection == InfillConnection::icNotConnected; }
 
     // Fill density, fraction in <0, 1>
-    float       density;
+    float       density     { 0.f };
 
     // Fill extruding flow multiplier, fraction in <0, 1>. Used by "over bridge compensation"
-    float       flow_mult;
+    float       flow_mult   { 1.0f };
 
     // Don't connect the fill lines around the inner perimeter.
-    bool        dont_connect;
+    InfillConnection connection{ icConnected };
+
+    // Length of an infill anchor along the perimeter.
+    // 1000mm is roughly the maximum length line that fits into a 32bit coord_t.
+    float       anchor_length   { 1000.f };
+    float       anchor_length_max   { 1000.f };
 
     // Don't adjust spacing to fill the space evenly.
-    bool        dont_adjust;
+    bool        dont_adjust { true };
+
+    // Monotonic infill - strictly left to right for better surface quality of top infills.
+    bool        monotonic  { false };
 
     // Try to extrude the exact amount of plastic to fill the volume requested
-    bool        fill_exactly;
+    bool        fill_exactly{ false };
 
     // For Honeycomb.
     // we were requested to complete each loop;
     // in this case we don't try to make more continuous paths
-    bool        complete;
+    bool        complete    { false };
 
     // if role == erNone or ERCustom, this method have to choose the best role itself, else it must use the argument's role.
-    ExtrusionRole role;
+    ExtrusionRole role      { erNone };
 
     //flow to use
-    Flow  const *flow;
+    Flow          flow      = Flow(0.f, 0.f, 0.f, false);
 
     //full configuration for the region, to avoid copying every bit that is needed. Use this for process-specific parameters.
-    PrintRegionConfig const *config;
+    PrintRegionConfig const *config{ nullptr };
 };
 static_assert(IsTriviallyCopyable<FillParams>::value, "FillParams class is not POD (and it should be - see constructor).");
 
@@ -88,19 +99,23 @@ public:
     coord_t     loop_clipping;
     // In scaled coordinates. Bounding box of the 2D projection of the object.
     BoundingBox bounding_box;
+
+    // Octree builds on mesh for usage in the adaptive cubic infill
+    FillAdaptive::Octree* adapt_fill_octree = nullptr;
 protected:
     // in unscaled coordinates, please use init (after settings all others settings) as some algos want to modify the value
-    coordf_t    spacing;
+    coordf_t    spacing_priv;
 
 public:
     virtual ~Fill() {}
+    virtual Fill* clone() const = 0;
 
     static Fill* new_from_type(const InfillPattern type);
     static Fill* new_from_type(const std::string &type);
 
     void         set_bounding_box(const Slic3r::BoundingBox &bbox) { bounding_box = bbox; }
-    virtual void init_spacing(coordf_t spacing, const FillParams &params) { this->spacing = spacing;  }
-    coordf_t get_spacing() const { return spacing; }
+    virtual void init_spacing(coordf_t spacing, const FillParams &params) { this->spacing_priv = spacing;  }
+    coordf_t get_spacing() const { return spacing_priv; }
 
     // Do not sort the fill lines to optimize the print head path?
     virtual bool no_sort() const { return false; }
@@ -111,12 +126,11 @@ public:
     // Perform the fill.
     virtual Polylines fill_surface(const Surface *surface, const FillParams &params) const;
 
-    virtual Fill* clone() const = 0;
 protected:
     Fill() :
         layer_id(size_t(-1)),
         z(0.),
-        spacing(0.),
+        spacing_priv(0.),
         // Infill / perimeter overlap.
         overlap(0.),
         // Initial angle is undefined.
@@ -128,11 +142,11 @@ protected:
         {}
 
     // The expolygon may be modified by the method to avoid a copy.
-    virtual void    _fill_surface_single(
+    virtual void _fill_surface_single(
         const FillParams                & /* params */, 
         unsigned int                      /* thickness_layers */,
         const std::pair<float, Point>   & /* direction */, 
-        ExPolygon                       & /* expolygon */, 
+        ExPolygon                         /* expolygon */,
         Polylines                       & /* polylines_out */) const {
         BOOST_LOG_TRIVIAL(error)<<"Error, the fill isn't implemented";
     };
@@ -143,14 +157,14 @@ protected:
 
     virtual std::pair<float, Point> _infill_direction(const Surface *surface) const;
 
-    void connect_infill(const Polylines &infill_ordered, const ExPolygon &boundary, Polylines &polylines_out, const FillParams &params) const;
+    void do_gap_fill(const ExPolygons& gapfill_areas, const FillParams& params, ExtrusionEntitiesPtr& coll_out) const;
 
-    void do_gap_fill(const ExPolygons &gapfill_areas, const FillParams &params, ExtrusionEntitiesPtr &coll_out) const;
+    double compute_unscaled_volume_to_fill(const Surface* surface, const FillParams& params) const;
 
     ExtrusionRole getRoleFromSurfaceType(const FillParams &params, const Surface *surface) const {
         if (params.role == erNone || params.role == erCustom) {
-            return params.flow->bridge ?
-            erBridgeInfill :
+            return params.flow.bridge ?
+                (surface->has_pos_bottom() ? erBridgeInfill :erInternalBridgeInfill) :
                            (surface->has_fill_solid() ?
                            ((surface->has_pos_top()) ? erTopSolidInfill : erSolidInfill) :
                            erInternalInfill);
@@ -159,7 +173,9 @@ protected:
     }
 
 public:
-    static void connect_infill(Polylines &&infill_ordered, const ExPolygon &boundary, Polylines &polylines_out, double spacing, const FillParams &params);
+    static void connect_infill(Polylines&& infill_ordered, const ExPolygon& boundary, Polylines& polylines_out, const double spacing, const FillParams& params);
+    //for rectilinear
+    static void connect_infill(Polylines&& infill_ordered, const ExPolygon& boundary, const Polygons& polygons_src, Polylines& polylines_out, const double spacing, const FillParams& params);
 
     static coord_t  _adjust_solid_spacing(const coord_t width, const coord_t distance);
 
@@ -183,6 +199,17 @@ public:
         { return Point(_align_to_grid(coord(0), spacing(0), base(0)), _align_to_grid(coord(1), spacing(1), base(1))); }
 };
 
+namespace FakePerimeterConnect {
+    void connect_infill(Polylines&& infill_ordered, const ExPolygon& boundary, Polylines& polylines_out, const double spacing, const FillParams& params);
+    void connect_infill(Polylines&& infill_ordered, const Polygons& boundary, const BoundingBox& bbox, Polylines& polylines_out, const double spacing, const FillParams& params);
+    void connect_infill(Polylines&& infill_ordered, const std::vector<const Polygon*>& boundary, const BoundingBox& bbox, Polylines& polylines_out, double spacing, const FillParams& params);
+}
+namespace PrusaSimpleConnect {
+    void connect_infill(Polylines& infill_ordered, const ExPolygon& boundary, Polylines& polylines_out, const double spacing, const FillParams& params);
+}
+namespace NaiveConnect {
+    void connect_infill(Polylines&& infill_ordered, const ExPolygon& boundary, Polylines& polylines_out, const double spacing, const FillParams& params);
+}
 
 class ExtrusionSetRole : public ExtrusionVisitor {
     ExtrusionRole new_role;

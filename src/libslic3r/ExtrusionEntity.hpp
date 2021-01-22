@@ -6,6 +6,7 @@
 #include "Polyline.hpp"
 
 #include <assert.h>
+#include <string_view>
 
 namespace Slic3r {
 
@@ -14,6 +15,41 @@ class ExtrusionEntityCollection;
 class Extruder;
 
 // Each ExtrusionRole value identifies a distinct set of { extruder, speed }
+/*
+enum ExtrusionRoleModifier : uint16_t {
+    ermPerimeter = (1 << 0),
+    ermInfill = (2 << 1),
+    ermThin = (2 << 2),
+    ermSkirt = (2 << 3),
+    ermOther = (2 << 4),
+    ermInternal = (1 << 10),
+    ermExternal = (1 << 11),
+    ermSolid = (1 << 12),
+    ermBridge = (1 << 13),
+    ermSupport = (1 << 13)
+};
+enum ExtrusionRole : uint16_t {
+    erNone = 0,
+    erPerimeter = ermPerimeter | ermInternal,
+    erExternalPerimeter = ermPerimeter | ermExternal,
+    erOverhangPerimeter = ermPerimeter | ermBridge,
+    erInternalInfill = ermInfill | ermInternal,
+    erSolidInfill = ermInfill | ermSolid | ermInternal,
+    erTopSolidInfill = ermInfill | ermSolid | ermExternal,
+    erBridgeInfill = ermInfill | ermSolid | ermBridge | ermExternal,
+    erInternalBridgeInfill = ermInfill | ermSolid | ermBridge,
+    erThinWall = ermThin | ermInternal,
+    erGapFill = ermThin | ermExternal,
+    erSkirt = ermSkirt,
+    erSupportMaterial = ermInfill | ermSupport | ermInternal,
+    erSupportMaterialInterface = ermInfill | ermSupport | ermExternal,
+    erWipeTower = ermSkirt | ermSupport,
+    erMilling = ermOther | ermPerimeter,
+    erCustom = ermOther | ermSkirt,
+    // Extrusion role for a collection with multiple extrusion roles.
+    erMixed = ermOther
+};
+*/
 enum ExtrusionRole : uint8_t {
     erNone,
     erPerimeter,
@@ -22,7 +58,9 @@ enum ExtrusionRole : uint8_t {
     erInternalInfill,
     erSolidInfill,
     erTopSolidInfill,
+    erIroning,
     erBridgeInfill,
+    erInternalBridgeInfill,
     erThinWall,
     erGapFill,
     erSkirt,
@@ -35,6 +73,7 @@ enum ExtrusionRole : uint8_t {
     erMixed,
     erCount
 };
+
 // perimeter / infill / support / skirt / gapfill / wipetower / custom / mixed
 // side / internal / top / bottom
 // bridge
@@ -49,6 +88,8 @@ enum ExtrusionLoopRole : uint16_t {
     elrHole = 1 << 3, // 8
     //it's a modifier that indicate that the loop should be printed as vase
     elrVase = 1 << 4, //16
+    //it's a modifier that indicate that the loop does not contains an inner loop, used for random seam
+    elrFirstLoop = 1 << 5, //32
 };
 
 
@@ -65,19 +106,20 @@ inline bool is_infill(ExtrusionRole role)
     return role == erBridgeInfill
         || role == erInternalInfill
         || role == erSolidInfill
-        || role == erTopSolidInfill;
+        || role == erTopSolidInfill
+        || role == erIroning;
 }
 
 inline bool is_solid_infill(ExtrusionRole role)
 {
     return role == erBridgeInfill
         || role == erSolidInfill
-        || role == erTopSolidInfill;
+        || role == erTopSolidInfill
+        || role == erIroning;
 }
 
 inline bool is_bridge(ExtrusionRole role) {
-    return role == erBridgeInfill
-        || role == erOverhangPerimeter;
+    return role == erBridgeInfill;
 }
 
 
@@ -166,6 +208,7 @@ public:
     virtual void visit(ExtrusionVisitorConst &visitor) const = 0;
 
     static std::string role_to_string(ExtrusionRole role);
+    static ExtrusionRole string_to_role(const std::string_view role);
 };
 
 typedef std::vector<ExtrusionEntity*> ExtrusionEntitiesPtr;
@@ -181,8 +224,8 @@ public:
     // Height of the extrusion, used for visualization purposes. Unscaled
     float height;
 
-    ExtrusionPath(ExtrusionRole role) : mm3_per_mm(-1), width(-1), height(-1), m_role(role) {};
-    ExtrusionPath(ExtrusionRole role, double mm3_per_mm, float width, float height) : mm3_per_mm(mm3_per_mm), width(width), height(height), m_role(role) {};
+    ExtrusionPath(ExtrusionRole role) : mm3_per_mm(-1), width(-1), height(-1), m_role(role) {}
+    ExtrusionPath(ExtrusionRole role, double mm3_per_mm, float width, float height) : mm3_per_mm(mm3_per_mm), width(width), height(height), m_role(role) {}
     ExtrusionPath(const ExtrusionPath& rhs) : polyline(rhs.polyline), mm3_per_mm(rhs.mm3_per_mm), width(rhs.width), height(rhs.height), m_role(rhs.m_role) {}
     ExtrusionPath(ExtrusionPath&& rhs) : polyline(std::move(rhs.polyline)), mm3_per_mm(rhs.mm3_per_mm), width(rhs.width), height(rhs.height), m_role(rhs.m_role) {}
     ExtrusionPath(const Polyline &polyline, const ExtrusionPath &rhs) : polyline(polyline), mm3_per_mm(rhs.mm3_per_mm), width(rhs.width), height(rhs.height), m_role(rhs.m_role) {}
@@ -255,7 +298,7 @@ public:
     ExtrusionPath3D& operator=(ExtrusionPath3D &&rhs) { m_role = rhs.m_role; this->mm3_per_mm = rhs.mm3_per_mm; this->width = rhs.width; this->height = rhs.height; 
         this->polyline = std::move(rhs.polyline); z_offsets = std::move(rhs.z_offsets); return *this;
     }
-    virtual ExtrusionPath3D* clone() const { return new ExtrusionPath3D(*this); }
+    virtual ExtrusionPath3D* clone() const override { return new ExtrusionPath3D(*this); }
     virtual ExtrusionPath3D* clone_move() override { return new ExtrusionPath3D(std::move(*this)); }
     virtual void visit(ExtrusionVisitor &visitor) override { visitor.use(*this); };
     virtual void visit(ExtrusionVisitorConst &visitor) const override { visitor.use(*this); };
@@ -407,7 +450,7 @@ public:
     virtual bool can_reverse() const override { return false; }
     virtual ExtrusionEntity* clone() const override{ return new ExtrusionLoop (*this); }
     // Create a new object, initialize it with this object using the move semantics.
-    ExtrusionEntity* clone_move() override { return new ExtrusionLoop(std::move(*this)); }
+    virtual ExtrusionEntity* clone_move() override { return new ExtrusionLoop(std::move(*this)); }
     bool make_clockwise();
     bool make_counter_clockwise();
     virtual void reverse() override;
@@ -548,16 +591,29 @@ class ExtrusionPrinter : public ExtrusionVisitorConst {
     bool trunc;
 public:
     ExtrusionPrinter(double mult = 0.0001, bool trunc = false) : mult(mult), trunc(trunc) { }
-    virtual void use(const ExtrusionPath &path) override;
-    virtual void use(const ExtrusionPath3D &path3D) override;
-    virtual void use(const ExtrusionMultiPath &multipath) override;
-    virtual void use(const ExtrusionMultiPath3D &multipath) override;
-    virtual void use(const ExtrusionLoop &loop) override;
-    virtual void use(const ExtrusionEntityCollection &collection) override;
+    virtual void use(const ExtrusionPath& path) override;
+    virtual void use(const ExtrusionPath3D& path3D) override;
+    virtual void use(const ExtrusionMultiPath& multipath) override;
+    virtual void use(const ExtrusionMultiPath3D& multipath) override;
+    virtual void use(const ExtrusionLoop& loop) override;
+    virtual void use(const ExtrusionEntityCollection& collection) override;
     std::string str() { return ss.str(); }
-    std::string print(const ExtrusionEntity &entity) && {
+    std::string print(const ExtrusionEntity& entity)&& {
         entity.visit(*this);
         return ss.str();
+    }
+};
+
+class ExtrusionLength : public ExtrusionVisitorConst {
+    double dist;
+public:
+    ExtrusionLength() : dist(0){ }
+    virtual void default_use(const ExtrusionEntity& path) override;
+    virtual void use(const ExtrusionEntityCollection& collection) override;
+    double get() { return dist; }
+    double length(const ExtrusionEntity& entity)&& {
+        entity.visit(*this);
+        return get();
     }
 };
 

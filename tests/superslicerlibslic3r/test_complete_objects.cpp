@@ -1,11 +1,12 @@
 
-//#define CATCH_CONFIG_DISABLE
-//#include <catch2/catch.hpp>
-#include <catch_main.hpp>
+#define CATCH_CONFIG_DISABLE
+#include <catch2/catch.hpp>
+//#include <catch_main.hpp>
 
 #include <string>
 #include "test_data.hpp"
 #include <libslic3r/libslic3r.h>
+#include <libslic3r/ModelArrange.hpp>
 #include <libslic3r/SVG.hpp>
 
 using namespace Slic3r::Test;
@@ -37,7 +38,7 @@ std::unique_ptr<Print> init_print_with_dist(DynamicPrintConfig &config, float di
 
     if (distance <= 0) {
         print->apply(model, config);
-        model.arrange_objects(&*print);// print->config().min_object_distance(&print->config(), 999999));
+        arrange_objects(model, InfiniteBed{}, ArrangeParams{ scaled(/*min_object_distance(config)) });/*/ PrintConfig::min_object_distance(&print->config(), 999999)) });
         model.center_instances_around_point(Slic3r::Vec2d(100, 100));
     }
 

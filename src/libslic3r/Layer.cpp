@@ -64,19 +64,30 @@ void Layer::make_slices()
         this->lslices.emplace_back(std::move(slices[i]));
 }
 
-// Merge typed slices into untyped slices. This method is used to revert the effects of detect_surfaces_type() called for posPrepareInfill.
-void Layer::merge_slices()
+static inline bool layer_needs_raw_backup(const Layer *layer)
 {
-    if (m_regions.size() == 1 && (this->id() > 0 || this->object()->config().first_layer_size_compensation.value == 0)) {
-        // Optimization, also more robust. Don't merge classified pieces of layerm->slices,
-        // but use the non-split islands of a layer. For a single region print, these shall be equal.
-        // Don't use this optimization on 1st layer with Elephant foot compensation applied, as this->lslices are uncompensated,
-        // while regions are compensated.
-        m_regions.front()->m_slices.set(this->lslices, stPosInternal | stDensSparse);
-    } else {
+    return ! (layer->regions().size() == 1 && (layer->id() > 0 || layer->object()->config().first_layer_size_compensation.value == 0));
+}
+
+void Layer::backup_untyped_slices()
+{
+    if (layer_needs_raw_backup(this)) {
         for (LayerRegion *layerm : m_regions)
-            // without safety offset, artifacts are generated (upstream Slic3r GH #2494)
-            layerm->m_slices.set(union_ex(to_polygons(std::move(layerm->m_slices.surfaces)), true), stPosInternal | stDensSparse);
+            layerm->raw_slices = to_expolygons(layerm->slices().surfaces);
+    } else {
+        assert(m_regions.size() == 1);
+        m_regions.front()->raw_slices.clear();
+    }
+}
+
+void Layer::restore_untyped_slices()
+{
+    if (layer_needs_raw_backup(this)) {
+        for (LayerRegion *layerm : m_regions)
+            layerm->m_slices.set(layerm->raw_slices, stPosInternal | stDensSparse);
+    } else {
+        assert(m_regions.size() == 1);
+        m_regions.front()->m_slices.set(this->lslices, stPosInternal | stDensSparse);
     }
 }
 
@@ -136,36 +147,41 @@ void Layer::make_perimeters()
             /// if you don't do that, objects will share the same region, and the same settings.
             if (config.perimeter_extruder           == other_config.perimeter_extruder
                 && config.perimeters                == other_config.perimeters
-                && config.perimeter_speed           == other_config.perimeter_speed // it os mandatory? can't this be set at gcode.cpp?
                 && config.external_perimeter_extrusion_width == other_config.external_perimeter_extrusion_width
+                && config.external_perimeter_overlap == other_config.external_perimeter_overlap
+                && config.external_perimeter_speed == other_config.external_perimeter_speed // it os mandatory? can't this be set at gcode.cpp?
                 && config.external_perimeters_first == other_config.external_perimeters_first
-                && config.external_perimeters_vase  == other_config.external_perimeters_vase
                 && config.external_perimeters_hole  == other_config.external_perimeters_hole
                 && config.external_perimeters_nothole == other_config.external_perimeters_nothole
-                && config.external_perimeter_speed  == other_config.external_perimeter_speed
+                && config.external_perimeters_vase == other_config.external_perimeters_vase
                 && config.extra_perimeters_odd_layers == other_config.extra_perimeters_odd_layers
                 && config.extra_perimeters_overhangs == other_config.extra_perimeters_overhangs
                 && config.gap_fill                  == other_config.gap_fill
                 && config.gap_fill_min_area         == other_config.gap_fill_min_area
+                && config.gap_fill_overlap          == other_config.gap_fill_overlap
                 && config.gap_fill_speed            == other_config.gap_fill_speed
                 && config.infill_dense              == other_config.infill_dense
                 && config.infill_dense_algo         == other_config.infill_dense_algo
                 && config.no_perimeter_unsupported_algo == other_config.no_perimeter_unsupported_algo
                 && config.only_one_perimeter_top    == other_config.only_one_perimeter_top
-                && config.overhangs                 == other_config.overhangs
+                && config.overhangs_width_speed     == other_config.overhangs_width_speed
                 && config.overhangs_width           == other_config.overhangs_width
                 && config.overhangs_reverse         == other_config.overhangs_reverse
                 && config.overhangs_reverse_threshold == other_config.overhangs_reverse_threshold
                 && config.perimeter_extrusion_width == other_config.perimeter_extrusion_width
                 && config.perimeter_loop            == other_config.perimeter_loop
                 && config.perimeter_loop_seam       == other_config.perimeter_loop_seam
-                && config.perimeter_speed           == other_config.perimeter_speed
+                && config.perimeter_overlap         == other_config.perimeter_overlap
+                && config.perimeter_speed           == other_config.perimeter_speed // it os mandatory? can't this be set at gcode.cpp?
                 && config.small_perimeter_speed     == other_config.small_perimeter_speed
+                && config.small_perimeter_min_length == other_config.small_perimeter_min_length
+                && config.small_perimeter_max_length == other_config.small_perimeter_max_length
                 && config.thin_walls                == other_config.thin_walls
                 && config.thin_walls_min_width      == other_config.thin_walls_min_width
                 && config.thin_walls_overlap        == other_config.thin_walls_overlap
                 && config.thin_perimeters           == other_config.thin_perimeters
                 && config.thin_perimeters_all       == other_config.thin_perimeters_all
+                && config.thin_walls_speed          == other_config.thin_walls_speed
                 && config.infill_overlap            == other_config.infill_overlap
                 && config.perimeter_loop            == other_config.perimeter_loop) {
                 layerms.push_back(other_layerm);
@@ -285,21 +301,6 @@ void Layer::make_milling_post_process() {
         }
     }
     BOOST_LOG_TRIVIAL(trace) << "Generating milling_post_process for layer " << this->id() << " - Done";
-}
-
-void Layer::make_fills()
-{
-    #ifdef SLIC3R_DEBUG
-    printf("Making fills for layer " PRINTF_ZU "\n", this->id());
-    #endif
-    for (LayerRegion *layerm : m_regions) {
-        layerm->fills.clear();
-        make_fill(*layerm, layerm->fills);
-#ifndef NDEBUG
-        for (size_t i = 0; i < layerm->fills.entities.size(); ++ i)
-            assert(dynamic_cast<ExtrusionEntityCollection*>(layerm->fills.entities[i]) != NULL);
-#endif
-    }
 }
 
 void Layer::export_region_slices_to_svg(const char *path) const

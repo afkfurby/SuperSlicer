@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.8)
-project(Slic3r)
+cmake_minimum_required(VERSION 3.13)
+project(SuperSlicer)
 
 include("version.inc")
 include(GNUInstallDirs)
@@ -22,11 +22,11 @@ else()
         endif()
 endif()
 
-option(SLIC3R_STATIC 			"Compile Slic3r with static libraries (Boost, TBB, glew)" ${SLIC3R_STATIC_INITIAL})
-option(SLIC3R_GUI    			"Compile Slic3r with GUI components (OpenGL, wxWidgets)" 1)
-option(SLIC3R_FHS               "Assume Slic3r is to be installed in a FHS directory structure" 0)
+option(SLIC3R_STATIC 			"Compile SuperSlicer with static libraries (Boost, TBB, glew)" ${SLIC3R_STATIC_INITIAL})
+option(SLIC3R_GUI    			"Compile SuperSlicer with GUI components (OpenGL, wxWidgets)" 1)
+option(SLIC3R_FHS               "Assume SuperSlicer is to be installed in a FHS directory structure" 0)
 option(SLIC3R_WX_STABLE         "Build against wxWidgets stable (3.0) as oppsed to dev (3.1) on Linux" 0)
-option(SLIC3R_PROFILE 			"Compile Slic3r with an invasive Shiny profiler" 0)
+option(SLIC3R_PROFILE 			"Compile SuperSlicer with an invasive Shiny profiler" 0)
 option(SLIC3R_PCH               "Use precompiled headers" 1)
 option(SLIC3R_MSVC_COMPILE_PARALLEL "Compile on Visual Studio in parallel" 1)
 option(SLIC3R_MSVC_PDB          "Generate PDB files on MSVC in Release mode" 1)
@@ -34,6 +34,11 @@ option(SLIC3R_PERL_XS           "Compile XS Perl module and enable Perl unit and
 option(SLIC3R_ASAN              "Enable ASan on Clang and GCC" 0)
 
 set(SLIC3R_GTK "2" CACHE STRING "GTK version to use with wxWidgets on Linux")
+
+if (APPLE)
+    set(CMAKE_FIND_FRAMEWORK LAST)
+    set(CMAKE_FIND_APPBUNDLE LAST)
+endif ()
 
 # Proposal for C++ unit tests and sandboxes
 option(SLIC3R_BUILD_SANDBOXES   "Build development sandboxes" OFF)
@@ -160,6 +165,9 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # Boost on Raspberry-Pi does not link to pthreads.
     set(THREADS_PREFER_PTHREAD_FLAG ON)
     find_package(Threads REQUIRED)
+
+    find_package(DBus REQUIRED)
+    include_directories(${DBUS_INCLUDE_DIRS})
 endif()
 
 if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUXX)
@@ -221,7 +229,7 @@ if(WIN32)
     add_definitions(-D_USE_MATH_DEFINES -D_WIN32 -D_CRT_SECURE_NO_WARNINGS -D_SCL_SECURE_NO_WARNINGS)
     if(MSVC)
         # BOOST_ALL_NO_LIB: Avoid the automatic linking of Boost libraries on Windows. Rather rely on explicit linking.
-        add_definitions(-DBOOST_ALL_NO_LIB -DBOOST_USE_WINAPI_VERSION=0x601 )
+        add_definitions(-DBOOST_ALL_NO_LIB -DBOOST_USE_WINAPI_VERSION=0x601 -DBOOST_SYSTEM_USE_UTF8 )
     endif(MSVC)
 endif(WIN32)
 
@@ -231,13 +239,13 @@ add_definitions(-DwxUSE_UNICODE -D_UNICODE -DUNICODE -DWXINTL_NO_GETTEXT_MACRO)
 add_definitions(-DwxNO_UNSAFE_WXSTRING_CONV)
 
 if (SLIC3R_PROFILE)
-    message("Slic3r will be built with a Shiny invasive profiler")
+    message("SuperSlicer will be built with a Shiny invasive profiler")
     add_definitions(-DSLIC3R_PROFILE)
 endif ()
 
 # Disable optimization even with debugging on.
 if (0)
-    message(STATUS "Perl compiled without optimization. Disabling optimization for the Slic3r build.")
+    message(STATUS "Perl compiled without optimization. Disabling optimization for the SuperSlicer build.")
     message("Old CMAKE_CXX_FLAGS_RELEASE: ${CMAKE_CXX_FLAGS_RELEASE}")
     message("Old CMAKE_CXX_FLAGS_RELWITHDEBINFO: ${CMAKE_CXX_FLAGS_RELEASE}")
     message("Old CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS_RELEASE}")
@@ -373,9 +381,9 @@ include_directories(BEFORE SYSTEM ${EIGEN3_INCLUDE_DIR})
 
 # Find expat or use bundled version
 # Always use the system libexpat on Linux.
-if (NOT SLIC3R_STATIC OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    find_package(EXPAT)
-endif ()
+
+find_package(EXPAT)
+
 if (NOT EXPAT_FOUND)
     add_library(expat STATIC
         ${LIBDIR}/expat/xmlparse.c
@@ -386,8 +394,10 @@ if (NOT EXPAT_FOUND)
     set(EXPAT_INCLUDE_DIRS ${LIBDIR}/expat/)
     set(EXPAT_LIBRARIES expat)
 endif ()
-include_directories(${EXPAT_INCLUDE_DIRS})
 
+find_package(PNG REQUIRED)
+
+set(OpenGL_GL_PREFERENCE "LEGACY")
 find_package(OpenGL REQUIRED)
 
 # Find glew or use bundled version
@@ -396,7 +406,7 @@ if (SLIC3R_STATIC)
     set(GLEW_VERBOSE ON)
 endif()
 
-    find_package(GLEW)
+find_package(GLEW)
 if (NOT GLEW_FOUND)
     message(STATUS "GLEW not found, using bundled version.")
     add_library(glew STATIC ${LIBDIR}/glew/src/glew.c)
@@ -423,10 +433,10 @@ add_custom_target(gettext_po_to_mo
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
     COMMENT "Generate localization po files (binary) from mo files (texts)"
 )
-file(GLOB L10N_PO_FILES "${L10N_DIR}/*/PrusaSlicer*.po")
+file(GLOB L10N_PO_FILES "${L10N_DIR}/*/SuperSlicer*.po")
 foreach(po_file ${L10N_PO_FILES})
     GET_FILENAME_COMPONENT(po_dir "${po_file}" DIRECTORY)
-    SET(mo_file "${po_dir}/PrusaSlicer.mo")
+    SET(mo_file "${po_dir}/SuperSlicer.mo")
     add_custom_command(
         TARGET gettext_po_to_mo PRE_BUILD
         COMMAND msgfmt ARGS -o ${mo_file} ${po_file}
@@ -480,9 +490,9 @@ function(prusaslicer_copy_dlls target)
 endfunction()
 
 
-# libslic3r, Slic3r GUI and the slic3r executable.
+# libslic3r, SuperSlicer GUI and the SuperSlicer executable.
 add_subdirectory(src)
-set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT slic3r_app_console)
+set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT SuperSlicer_app_console)
 
 # Perl bindings, currently only used for the unit / integration tests of libslic3r.
 # Also runs the unit / integration tests.
@@ -504,9 +514,15 @@ endif()
 if (WIN32)
     install(DIRECTORY "${SLIC3R_RESOURCES_DIR}/" DESTINATION "${CMAKE_INSTALL_PREFIX}/resources")
 elseif (SLIC3R_FHS)
+    # CMAKE_INSTALL_FULL_DATAROOTDIR: read-only architecture-independent data root (share)
     set(SLIC3R_FHS_RESOURCES "${CMAKE_INSTALL_FULL_DATAROOTDIR}/SuperSlicer")
     install(DIRECTORY "${SLIC3R_RESOURCES_DIR}/" DESTINATION "${SLIC3R_FHS_RESOURCES}")
+    install(FILES src/platform/unix/SuperSlicer.desktop DESTINATION ${SLIC3R_FHS_RESOURCES}/applications)
+    install(FILES src/platform/unix/PrusaGcodeviewer.desktop DESTINATION ${SLIC3R_FHS_RESOURCES}/applications)
 else ()
+    install(FILES src/platform/unix/SuperSlicer.desktop DESTINATION ${CMAKE_INSTALL_PREFIX}/resources/applications)
+    install(FILES src/platform/unix/PrusaGcodeviewer.desktop DESTINATION ${CMAKE_INSTALL_PREFIX}/resources/applications)
     install(DIRECTORY "${SLIC3R_RESOURCES_DIR}/" DESTINATION "${CMAKE_INSTALL_PREFIX}/resources")
 endif ()
+
 configure_file(${LIBDIR}/platform/unix/fhs.hpp.in ${LIBDIR_BIN}/platform/unix/fhs.hpp)

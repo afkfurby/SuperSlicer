@@ -2,7 +2,9 @@
 #include "ConfigManipulation.hpp"
 #include "I18N.hpp"
 #include "GUI_App.hpp"
-#include "PresetBundle.hpp"
+#include "format.hpp"
+#include "libslic3r/Model.hpp"
+#include "libslic3r/PresetBundle.hpp"
 
 #include <wx/msgdlg.h>
 
@@ -27,9 +29,7 @@ void ConfigManipulation::toggle_field(const std::string& opt_key, const bool tog
         if (local_config->option(opt_key) == nullptr)
             return;
     }
-    Field* field = get_field(opt_key, opt_index);
-    if (field==nullptr) return;
-    field->toggle(toggle);
+    cb_toggle_field(opt_key, toggle, opt_index);
 }
 
 void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, const bool is_global_config)
@@ -71,31 +71,54 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
 
     if (config->opt_bool("spiral_vase") && !(
         config->opt_int("perimeters") == 1
-            && config->opt_int("top_solid_layers") == 0
-            && fill_density == 0
-            && config->opt_bool("support_material") == false
-            && config->opt_int("support_material_enforce_layers") == 0
-            && config->opt_bool("exact_last_layer_height") == false
-            && config->opt_bool("ensure_vertical_shell_thickness") == false
-            && config->opt_bool("infill_dense") == false
-            && config->opt_bool("extra_perimeters") == false
-            )) {
+        && config->opt_int("top_solid_layers") == 0
+        && fill_density == 0
+        && config->opt_bool("support_material") == false
+        && config->opt_int("support_material_enforce_layers") == 0
+        && config->opt_bool("exact_last_layer_height") == false
+        && config->opt_bool("ensure_vertical_shell_thickness") == false
+        && config->opt_bool("infill_dense") == false
+        && config->opt_bool("extra_perimeters") == false
+        )) {
         wxString msg_text = _(L("The Spiral Vase mode requires:\n"
-                                "- one perimeter\n"
-                                "- no top solid layers\n"
-                                "- 0% fill density\n"
-                                "- no support material\n"
-                                "- Ensure vertical shell thickness enabled\n"
-                                "- unchecked 'exact last layer height'\n"
-                                "- unchecked 'dense infill'\n"
-                                "- unchecked 'extra perimeters'"));
+            "- one perimeter\n"
+            "- no top solid layers\n"
+            "- 0% fill density\n"
+            "- no support material\n"
+            "- Ensure vertical shell thickness enabled\n"
+            "- unchecked 'exact last layer height'\n"
+            "- unchecked 'dense infill'\n"
+            "- unchecked 'extra perimeters'"));
         if (is_global_config)
             msg_text += "\n\n" + _(L("Shall I adjust those settings in order to enable Spiral Vase?"));
         wxMessageDialog dialog(nullptr, msg_text, _(L("Spiral Vase")),
-                               wxICON_WARNING | (is_global_config ? wxYES | wxNO : wxOK));
+            wxICON_WARNING | (is_global_config ? wxYES | wxNO : wxOK));
         DynamicPrintConfig new_conf = *config;
         auto answer = dialog.ShowModal();
-        if (!is_global_config || answer == wxID_YES) {
+
+        if (!is_global_config) {
+            if (this->local_config->get().optptr("spiral_vase"))
+                new_conf.set_key_value("spiral_vase", new ConfigOptionBool(false));
+            else if (this->local_config->get().optptr("perimeters"))
+                new_conf.set_key_value("perimeters", new ConfigOptionInt(1));
+            else if (this->local_config->get().optptr("top_solid_layers"))
+                new_conf.set_key_value("top_solid_layers", new ConfigOptionInt(0));
+            else if (this->local_config->get().optptr("fill_density"))
+                new_conf.set_key_value("fill_density", new ConfigOptionPercent(0));
+            else if (this->local_config->get().optptr("support_material"))
+                new_conf.set_key_value("support_material", new ConfigOptionBool(false));
+            else if (this->local_config->get().optptr("support_material_enforce_layers"))
+                new_conf.set_key_value("support_material_enforce_layers", new ConfigOptionInt(0));
+            else if (this->local_config->get().optptr("exact_last_layer_height"))
+                new_conf.set_key_value("exact_last_layer_height", new ConfigOptionBool(false));
+            else if (this->local_config->get().optptr("ensure_vertical_shell_thickness"))
+                new_conf.set_key_value("ensure_vertical_shell_thickness", new ConfigOptionBool(false));
+            else if (this->local_config->get().optptr("infill_dense"))
+                new_conf.set_key_value("infill_dense", new ConfigOptionBool(false));
+            else if (this->local_config->get().optptr("extra_perimeters"))
+                new_conf.set_key_value("extra_perimeters", new ConfigOptionBool(false));
+            this->local_config->apply_only(new_conf, this->local_config->keys(), true);
+        } else if (answer == wxID_YES) {
             new_conf.set_key_value("perimeters", new ConfigOptionInt(1));
             new_conf.set_key_value("top_solid_layers", new ConfigOptionInt(0));
             new_conf.set_key_value("fill_density", new ConfigOptionPercent(0));
@@ -106,8 +129,7 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
             new_conf.set_key_value("infill_dense", new ConfigOptionBool(false));
             new_conf.set_key_value("extra_perimeters", new ConfigOptionBool(false));
             fill_density = 0;
-        }
-        else {
+        } else {
             new_conf.set_key_value("spiral_vase", new ConfigOptionBool(false));
         }
         apply(config, &new_conf);
@@ -119,39 +141,60 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
         ((ConfigOptionEnumGeneric*)config->option("support_material_contact_distance_type"))->value != zdNone &&
         (config->opt_int("support_material_extruder") != 0 || config->opt_int("support_material_interface_extruder") != 0)) {
         wxString msg_text = _(L("The Wipe Tower currently supports the non-soluble supports only\n"
-                                "if they are printed with the current extruder without triggering a tool change.\n"
-                                "(both support_material_extruder and support_material_interface_extruder need to be set to 0)."));
+            "if they are printed with the current extruder without triggering a tool change.\n"
+            "(both support_material_extruder and support_material_interface_extruder need to be set to 0)."));
         if (is_global_config)
             msg_text += "\n\n" + _(L("Shall I adjust those settings in order to enable the Wipe Tower?"));
-        wxMessageDialog dialog (nullptr, msg_text, _(L("Wipe Tower")),
-                                wxICON_WARNING | (is_global_config ? wxYES | wxNO : wxOK));
+        wxMessageDialog dialog(nullptr, msg_text, _(L("Wipe Tower")),
+            wxICON_WARNING | (is_global_config ? wxYES | wxNO : wxOK));
         DynamicPrintConfig new_conf = *config;
         auto answer = dialog.ShowModal();
-        if (!is_global_config || answer == wxID_YES) {
+        if (!is_global_config) {
+            if (this->local_config->get().optptr("wipe_tower"))
+                new_conf.set_key_value("wipe_tower", new ConfigOptionBool(false));
+            else if (this->local_config->get().optptr("support_material_extruder"))
+                new_conf.set_key_value("support_material_extruder", new ConfigOptionInt(0));
+            else if (this->local_config->get().optptr("support_material_interface_extruder"))
+                new_conf.set_key_value("support_material_interface_extruder", new ConfigOptionInt(0));
+            else if (this->local_config->get().optptr("support_material_contact_distance_type"))
+                new_conf.set_key_value("support_material_contact_distance_type", new ConfigOptionEnum<SupportZDistanceType>(zdNone));
+            else if (this->local_config->get().optptr("support_material"))
+                new_conf.set_key_value("support_material", new ConfigOptionBool(false));
+            this->local_config->apply_only(new_conf, this->local_config->keys(), true);
+        } else if (answer == wxID_YES) {
             new_conf.set_key_value("support_material_extruder", new ConfigOptionInt(0));
             new_conf.set_key_value("support_material_interface_extruder", new ConfigOptionInt(0));
-        }
-        else
+        } else
             new_conf.set_key_value("wipe_tower", new ConfigOptionBool(false));
         apply(config, &new_conf);
     }
 
     if (config->opt_bool("wipe_tower") && config->opt_bool("support_material") &&
-        ((ConfigOptionEnumGeneric*)config->option("support_material_contact_distance_type"))->value != zdNone &&
+        ((ConfigOptionEnumGeneric*)config->option("support_material_contact_distance_type"))->value == zdNone &&
         !config->opt_bool("support_material_synchronize_layers")) {
         wxString msg_text = _(L("For the Wipe Tower to work with the soluble supports, the support layers\n"
-                                "need to be synchronized with the object layers."));
+            "need to be synchronized with the object layers."));
         if (is_global_config)
             msg_text += "\n\n" + _(L("Shall I synchronize support layers in order to enable the Wipe Tower?"));
         wxMessageDialog dialog(nullptr, msg_text, _(L("Wipe Tower")),
-                               wxICON_WARNING | (is_global_config ? wxYES | wxNO : wxOK));
+            wxICON_WARNING | (is_global_config ? wxYES | wxNO : wxOK));
         DynamicPrintConfig new_conf = *config;
         auto answer = dialog.ShowModal();
-        if (!is_global_config || answer == wxID_YES) {
+        if (!is_global_config) {
+            if (this->local_config->get().optptr("wipe_tower"))
+                new_conf.set_key_value("wipe_tower", new ConfigOptionBool(false));
+            else if (this->local_config->get().optptr("support_material_synchronize_layers"))
+                new_conf.set_key_value("support_material_synchronize_layers", new ConfigOptionBool(true));
+            else if (this->local_config->get().optptr("support_material_contact_distance_type"))
+                new_conf.set_key_value("support_material_contact_distance_type", new ConfigOptionEnum<SupportZDistanceType>(zdFilament));
+            else if (this->local_config->get().optptr("support_material"))
+                new_conf.set_key_value("support_material", new ConfigOptionBool(false));
+            this->local_config->apply_only(new_conf, this->local_config->keys(), true);
+        } else if (answer == wxID_YES) {
             new_conf.set_key_value("support_material_synchronize_layers", new ConfigOptionBool(true));
-        }
-        else
+        } else {
             new_conf.set_key_value("wipe_tower", new ConfigOptionBool(false));
+        }
         apply(config, &new_conf);
     }
 
@@ -167,25 +210,25 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
         if (config->option<ConfigOptionFloatOrPercent>("extrusion_width")->percent) {
             //has to be percent
             diameter = 0;
-        }
-        else {
+        } else {
             diameter = config->option<ConfigOptionFloatOrPercent>("extrusion_width")->value;
         }
         std::vector<optDescr> opts;
         opts.push_back({ config->option<ConfigOptionFloatOrPercent>("infill_overlap"), "infill_overlap", 0, diameter * 10 });
         for (int i = 0; i < opts.size(); i++) {
-            if ( (!opts[i].opt->percent) && (opts[i].opt->get_abs_value(diameter) < opts[i].min || opts[i].opt->get_abs_value(diameter) > opts[i].max) ) {
-                wxString msg_text = _(L("Did you forgot to put a '%' in the "+opts[i].name+" field? "
-                    "it's currently set to "+std::to_string(opts[i].opt->get_abs_value(diameter)) + " mm."));
-                if (is_global_config)
+            if ((!opts[i].opt->percent) && (opts[i].opt->get_abs_value(diameter) < opts[i].min || opts[i].opt->get_abs_value(diameter) > opts[i].max)) {
+                wxString msg_text = _(L("Did you forgot to put a '%' in the " + opts[i].name + " field? "
+                    "it's currently set to " + std::to_string(opts[i].opt->get_abs_value(diameter)) + " mm."));
+                if (is_global_config) {
                     msg_text += "\n\n" + _(L("Shall I add the '%'?"));
-                wxMessageDialog dialog(nullptr, msg_text, _(L("Wipe Tower")),
-                    wxICON_WARNING | (is_global_config ? wxYES | wxNO : wxOK));
-                DynamicPrintConfig new_conf = *config;
-                auto answer = dialog.ShowModal();
-                if (!is_global_config || answer == wxID_YES) {
-                    new_conf.set_key_value(opts[i].name, new ConfigOptionFloatOrPercent(opts[i].opt->value*100, true));
-                    apply(config, &new_conf);
+                    wxMessageDialog dialog(nullptr, msg_text, _(L("Wipe Tower")),
+                        wxICON_WARNING | (is_global_config ? wxYES | wxNO : wxOK));
+                    DynamicPrintConfig new_conf = *config;
+                    auto answer = dialog.ShowModal();
+                    if (answer == wxID_YES) {
+                        new_conf.set_key_value(opts[i].name, new ConfigOptionFloatOrPercent(opts[i].opt->value * 100, true));
+                        apply(config, &new_conf);
+                    }
                 }
             }
         }
@@ -210,16 +253,17 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
 
     if (config->opt_float("brim_width") > 0 && config->opt_float("brim_offset") >= config->opt_float("brim_width")) {
         wxString msg_text = _(L("It's not possible to use a bigger value for the brim offset than the brim width, as it won't extrude anything."
-            " Brim offset have to be lower than the brim width.")); 
-        if (is_global_config)
+            " Brim offset have to be lower than the brim width."));
+        if (is_global_config) {
             msg_text += "\n\n" + _(L("Shall I switch the brim offset to 0?"));
-        wxMessageDialog dialog(nullptr, msg_text, _(L("Brim configuration")),
-            wxICON_WARNING | (is_global_config ? wxYES | wxNO : wxOK));
-        auto answer = dialog.ShowModal();
-        if (!is_global_config || answer == wxID_YES) {
-            DynamicPrintConfig new_conf = *config;
-            new_conf.set_key_value("brim_offset", new ConfigOptionFloat(0));
-            apply(config, &new_conf);
+            wxMessageDialog dialog(nullptr, msg_text, _(L("Brim configuration")),
+                wxICON_WARNING | (is_global_config ? wxYES | wxNO : wxOK));
+            auto answer = dialog.ShowModal();
+            if (!is_global_config || answer == wxID_YES) {
+                DynamicPrintConfig new_conf = *config;
+                new_conf.set_key_value("brim_offset", new ConfigOptionFloat(0));
+                apply(config, &new_conf);
+            }
         }
     }
 
@@ -229,78 +273,61 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
         // Ask only once.
         if (!support_material_overhangs_queried) {
             support_material_overhangs_queried = true;
-            if (!config->opt_bool("overhangs")/* != 1*/) {
+            if (config->option<ConfigOptionFloatOrPercent>("overhangs_width_speed") == 0) {
                 wxString msg_text = _(L("Supports work better, if the following feature is enabled:\n"
-                                        "- Detect bridging perimeters"));
-                if (is_global_config)
+                    "- overhangs with bridge speed & fan"));
+                if (is_global_config) {
                     msg_text += "\n\n" + _(L("Shall I adjust those settings for supports?"));
-                wxMessageDialog dialog(nullptr, msg_text, _(L("Support Generator")),
-                                       wxICON_WARNING | (is_global_config ? wxYES | wxNO | wxCANCEL : wxOK));
-                DynamicPrintConfig new_conf = *config;
-                auto answer = dialog.ShowModal();
-                if (!is_global_config || answer == wxID_YES) {
-                    // Enable "detect bridging perimeters".
-                    new_conf.set_key_value("overhangs", new ConfigOptionBool(true));
+                    wxMessageDialog dialog(nullptr, msg_text, _(L("Support Generator")),
+                        wxICON_WARNING | (is_global_config ? wxYES | wxNO | wxCANCEL : wxOK));
+                    DynamicPrintConfig new_conf = *config;
+                    auto answer = dialog.ShowModal();
+                    if (!is_global_config || answer == wxID_YES) {
+                        // Enable "detect bridging perimeters".
+                        new_conf.set_key_value("overhangs_width_speed", new ConfigOptionFloatOrPercent(50, true));
+                    } else if (answer == wxID_NO) {
+                        // Do nothing, leave supports on and "detect bridging perimeters" off.
+                    } else if (answer == wxID_CANCEL) {
+                        // Disable supports.
+                        new_conf.set_key_value("support_material", new ConfigOptionBool(false));
+                        support_material_overhangs_queried = false;
+                    }
+                    apply(config, &new_conf);
                 }
-                else if (answer == wxID_NO) {
-                    // Do nothing, leave supports on and "detect bridging perimeters" off.
-                }
-                else if (answer == wxID_CANCEL) {
-                    // Disable supports.
-                    new_conf.set_key_value("support_material", new ConfigOptionBool(false));
-                    support_material_overhangs_queried = false;
-                }
-                apply(config, &new_conf);
             }
         }
-    }
-    else {
+    } else {
         support_material_overhangs_queried = false;
     }
 
     if (config->option<ConfigOptionPercent>("fill_density")->value == 100) {
-        auto fill_pattern = config->option<ConfigOptionEnum<InfillPattern>>("fill_pattern")->value;
-        std::string str_fill_pattern = "";
-        t_config_enum_values map_names = config->option<ConfigOptionEnum<InfillPattern>>("fill_pattern")->get_enum_values();
-        for (auto it : map_names) {
-            if (fill_pattern == it.second) {
-                str_fill_pattern = it.first;
-                break;
-            }
+        std::string  fill_pattern = config->option<ConfigOptionEnum<InfillPattern>>("fill_pattern")->serialize();
+        const std::vector<std::string>& top_fill_pattern_values = config->def()->get("top_fill_pattern")->enum_values;
+        bool correct_100p_fill = std::find(top_fill_pattern_values.begin(), top_fill_pattern_values.end(), fill_pattern) != top_fill_pattern_values.end();
+        if (!correct_100p_fill) {
+            const std::vector<std::string>& bottom_fill_pattern_values = config->def()->get("bottom_fill_pattern")->enum_values;
+            correct_100p_fill = std::find(bottom_fill_pattern_values.begin(), bottom_fill_pattern_values.end(), fill_pattern) != bottom_fill_pattern_values.end();
         }
-        if (!str_fill_pattern.empty()) {
-            const std::vector<std::string>& top_fill_pattern = config->def()->get("top_fill_pattern")->enum_values;
-            bool correct_100p_fill = false;
-            for (const std::string& fill : top_fill_pattern)
-            {
-                if (str_fill_pattern == fill)
-                    correct_100p_fill = true;
-            }
-            const std::vector<std::string> bottom_fill_pattern = config->def()->get("bottom_fill_pattern")->enum_values;
-            for (const std::string &fill : bottom_fill_pattern) {
-                if (str_fill_pattern.compare(fill) == 0)
-                    correct_100p_fill = true;
-            }
+        if (!correct_100p_fill) {
             // get fill_pattern name from enum_labels for using this one at dialog_msg
-            str_fill_pattern = _utf8(config->def()->get("fill_pattern")->enum_labels[fill_pattern]);
-            if (!correct_100p_fill) {
-                wxString msg_text = GUI::from_u8((boost::format(_utf8(L("The %1% infill pattern is not supposed to work at 100%% density."))) % str_fill_pattern).str());
-                if (is_global_config)
-                    msg_text += "\n\n" + _(L("Shall I switch to rectilinear fill pattern?"));
-                wxMessageDialog dialog(nullptr, msg_text, _(L("Infill")),
-                                                  wxICON_WARNING | (is_global_config ? wxYES | wxNO : wxOK) );
-                DynamicPrintConfig new_conf = *config;
-                auto answer = dialog.ShowModal();
-                if (!is_global_config || answer == wxID_YES) {
-                    new_conf.set_key_value("fill_pattern", new ConfigOptionEnum<InfillPattern>(ipRectilinear));
-                    fill_density = 100;
+            const ConfigOptionDef* fill_pattern_def = config->def()->get("fill_pattern");
+            assert(fill_pattern_def != nullptr);
+            auto it_pattern = std::find(fill_pattern_def->enum_values.begin(), fill_pattern_def->enum_values.end(), fill_pattern);
+            assert(it_pattern != fill_pattern_def->enum_values.end());
+            if (it_pattern != fill_pattern_def->enum_values.end()) {
+                wxString msg_text = GUI::format_wxstr(_L("The %1% infill pattern is not supposed to work at 100%% density."),
+                    _(fill_pattern_def->enum_labels[it_pattern - fill_pattern_def->enum_values.begin()]));
+                if (is_global_config) {
+                    msg_text += "\n\n" + _L("Shall I switch to rectilinear fill pattern?");
+                    wxMessageDialog dialog(nullptr, msg_text, _L("Infill"),
+                        wxICON_WARNING | (is_global_config ? wxYES | wxNO : wxOK));
+                    DynamicPrintConfig new_conf = *config;
+                    auto answer = dialog.ShowModal();
+                    if (!is_global_config || answer == wxID_YES) {
+                        new_conf.set_key_value("fill_pattern", new ConfigOptionEnum<InfillPattern>(ipRectilinear));
+                        fill_density = 100;
+                    }
                 }
-                else
-                    fill_density = wxGetApp().preset_bundle->prints.get_selected_preset().config.option<ConfigOptionPercent>("fill_density")->value;
-                new_conf.set_key_value("fill_density", new ConfigOptionPercent(fill_density));
-                apply(config, &new_conf);
-                if (cb_value_change)
-                    cb_value_change("fill_density", fill_density);
             }
         }
     }
@@ -313,10 +340,10 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig* config)
         "only_one_perimeter_top", "ensure_vertical_shell_thickness", "thin_walls", 
         "overhangs", "overhangs_reverse",
         "seam_position", "external_perimeters_first", "external_perimeters_vase", "external_perimeter_extrusion_width",
-        "perimeter_speed", "small_perimeter_speed", "external_perimeter_speed", "perimeter_loop", "perimeter_loop_seam" })
+        "perimeter_speed", "small_perimeter_speed", "small_perimeter_min_length", " small_perimeter_max_length", "external_perimeter_speed", "perimeter_loop", "perimeter_loop_seam" })
         toggle_field(el, have_perimeters);
 
-    toggle_field("overhangs_width", config->opt_bool("overhangs"));
+    toggle_field("overhangs_width", config->option<ConfigOptionFloatOrPercent>("overhangs_width_speed")->value > 0);
     toggle_field("overhangs_reverse_threshold", config->opt_bool("overhangs_reverse"));
     toggle_field("min_width_top_surface", config->opt_bool("only_one_perimeter_top"));
     toggle_field("thin_perimeters_all", config->opt_bool("thin_perimeters"));
@@ -327,6 +354,9 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig* config)
     for (auto el : { "thin_walls_min_width", "thin_walls_overlap" })
         toggle_field(el, config->opt_bool("thin_walls"));
 
+    for (auto el : { "seam_angle_cost", "seam_travel_cost" })
+        toggle_field(el, config->option<ConfigOptionEnum<SeamPosition>>("seam_position")->value == SeamPosition::spNearest);
+
     toggle_field("perimeter_loop_seam", config->opt_bool("perimeter_loop"));
 
     toggle_field("gap_fill_min_area", config->opt_bool("gap_fill"));
@@ -336,8 +366,11 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig* config)
     bool have_infill = config->option<ConfigOptionPercent>("fill_density")->value > 0;
     // infill_extruder uses the same logic as in Print::extruders()
     for (auto el : { "fill_pattern", "infill_every_layers", "infill_only_where_needed",
-                "solid_infill_every_layers", "solid_infill_below_area", "infill_extruder" })
+                    "solid_infill_every_layers", "solid_infill_below_area", "infill_extruder", "infill_anchor_max" })
         toggle_field(el, have_infill);
+    // Only allow configuration of open anchors if the anchoring is enabled.
+    bool has_infill_anchors = have_infill && config->option<ConfigOptionFloatOrPercent>("infill_anchor_max")->value > 0;
+    toggle_field("infill_anchor", has_infill_anchors);
 
     bool can_have_infill_dense = config->option<ConfigOptionPercent>("fill_density")->value < 50;
     for (auto el : { "infill_dense" })
@@ -373,7 +406,7 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig* config)
     for (auto el : { "top_infill_extrusion_width", "top_solid_infill_speed" })
         toggle_field(el, has_top_solid_infill);
 
-    bool have_default_acceleration = config->opt_float("default_acceleration") > 0;
+    bool have_default_acceleration = config->option<ConfigOptionFloatOrPercent>("default_acceleration")->value > 0;
     for (auto el : { "perimeter_acceleration", "infill_acceleration",
                     "bridge_acceleration", "first_layer_acceleration" })
         toggle_field(el, have_default_acceleration);
@@ -419,6 +452,10 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig* config)
     toggle_field("support_material_extruder", have_support_material || have_skirt);
     toggle_field("support_material_speed", have_support_material || have_brim || have_skirt);
 
+    bool has_ironing = config->opt_bool("ironing");
+    for (auto el : { "ironing_type", "ironing_flowrate", "ironing_spacing", "ironing_speed" })
+    	toggle_field(el, has_ironing);
+
     bool have_sequential_printing = config->opt_bool("complete_objects");
     for (auto el : { /*"extruder_clearance_radius", "extruder_clearance_height",*/ "complete_objects_one_skirt",
 		"complete_objects_sort"})
@@ -428,9 +465,12 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig* config)
     toggle_field("standby_temperature_delta", have_ooze_prevention);
 
     bool have_wipe_tower = config->opt_bool("wipe_tower");
-    for (auto el : { "wipe_tower_x", "wipe_tower_y", "wipe_tower_width", "wipe_tower_rotation_angle", "wipe_tower_bridging", "wipe_tower_brim" })
+    for (auto el : { "wipe_tower_x", "wipe_tower_y", "wipe_tower_width", "wipe_tower_rotation_angle",
+                     "wipe_tower_bridging", "wipe_tower_brim", "wipe_tower_no_sparse_layers", "single_extruder_multi_material_priming" })
         toggle_field(el, have_wipe_tower);
 
+    bool have_avoid_crossing_perimeters = config->opt_bool("avoid_crossing_perimeters");
+    toggle_field("avoid_crossing_perimeters_max_detour", have_avoid_crossing_perimeters);
 
     for (auto el : { "fill_smooth_width", "fill_smooth_distribution" })
         toggle_field(el, (has_solid_infill && (config->option<ConfigOptionEnum<InfillPattern>>("top_fill_pattern")->value == InfillPattern::ipSmooth
@@ -482,6 +522,7 @@ void ConfigManipulation::toggle_print_sla_options(DynamicPrintConfig* config)
     toggle_field("support_head_penetration", supports_en);
     toggle_field("support_head_width", supports_en);
     toggle_field("support_pillar_diameter", supports_en);
+    toggle_field("support_small_pillar_diameter_percent", supports_en);
     toggle_field("support_max_bridges_on_pillar", supports_en);
     toggle_field("support_pillar_connection_mode", supports_en);
     toggle_field("support_buildplate_only", supports_en);

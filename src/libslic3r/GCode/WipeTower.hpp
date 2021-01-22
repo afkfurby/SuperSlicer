@@ -21,7 +21,7 @@ enum GCodeFlavor : unsigned char;
 class WipeTower
 {
 public:
-    static char const* never_skip_tag() { return "_GCODE_WIPE_TOWER_NEVER_SKIP_TAG"; }
+    static const std::string never_skip_tag() { return "_GCODE_WIPE_TOWER_NEVER_SKIP_TAG"; }
 
     struct Extrusion
     {
@@ -57,6 +57,13 @@ public:
         // Is this a priming extrusion? (If so, the wipe tower rotation & translation will not be applied later)
         bool                    priming;
 
+        // Pass a polyline so that normal G-code generator can do a wipe for us.
+        // The wipe cannot be done by the wipe tower because it has to pass back
+        // a loaded extruder, so it would have to either do a wipe with no retraction
+        // (leading to https://github.com/prusa3d/PrusaSlicer/issues/2834) or do
+        // an extra retraction-unretraction pair.
+        std::vector<Vec2f> wipe_path;
+
         // Initial tool
         int initial_tool;
 
@@ -76,6 +83,12 @@ public:
 			return e_length;
 		}
 	};
+
+    // Construct ToolChangeResult from current state of WipeTower and WipeTowerWriter.
+    // WipeTowerWriter is moved from !
+    ToolChangeResult construct_tcr(WipeTowerWriter& writer,
+                                   bool priming,
+                                   size_t old_tool) const;
 
 	// x			-- x coordinates of wipe tower in mm ( left bottom corner )
 	// y			-- y coordinates of wipe tower in mm ( left bottom corner )
@@ -135,11 +148,13 @@ public:
 	}
 
 	// Return the wipe tower position.
-	const Vec2f& 		 position() const { return m_wipe_tower_pos; }
+	const Vec2f& 		position() const { return m_wipe_tower_pos; }
 	// Return the wipe tower width.
-	float     		 width()    const { return m_wipe_tower_width; }
+	float     			width()    const { return m_wipe_tower_width; }
 	// The wipe tower is finished, there should be no more tool changes or wipe tower prints.
-	bool 	  		 finished() const { return m_max_color_changes == 0; }
+	bool 	  			finished() const { return m_max_color_changes == 0; }
+	// get the speed reduction from the current filament material
+	float				get_speed_reduction() const;
 
 	// Returns gcode to prime the nozzles at the front edge of the print bed.
 	std::vector<ToolChangeResult> prime(
@@ -153,7 +168,7 @@ public:
 
 	// Returns gcode for a toolchange and a final print head position.
 	// On the first layer, extrude a brim around the future wipe tower first.
-    ToolChangeResult tool_change(size_t new_tool, bool last_in_layer);
+    ToolChangeResult tool_change(size_t new_tool);
 
 	// Fill the unfilled space with a sparse infill.
 	// Call this method only if layer_finished() is false.
@@ -201,8 +216,6 @@ public:
     };
 
 private:
-	WipeTower();
-
 	enum wipe_shape // A fill-in direction
 	{
 		SHAPE_NORMAL = 1,
@@ -366,14 +379,12 @@ private:
 	void toolchange_Unload(
 		WipeTowerWriter &writer,
 		const box_coordinates  &cleaning_box, 
-		const std::string&	 	current_material,
 		const int 				new_temperature,
         const size_t            temp_tool);
 
 	void toolchange_Change(
 		WipeTowerWriter &writer,
-        const size_t		new_tool,
-		const std::string& 		new_material);
+        const size_t		new_tool);
 	
 	void toolchange_Load(
 		WipeTowerWriter &writer,

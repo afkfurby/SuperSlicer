@@ -1,12 +1,30 @@
 
 # Building SuperSlicer on Microsoft Windows
 
-The currently supported way of building SuperSlicer on Windows is with CMake and MS Visual Studio 2017.
-You can use the free [Visual Studio 2017 Community Edition](https://www.visualstudio.com/vs/older-downloads/).
+The currently supported way of building SuperSlicer on Windows is with CMake and [MS Visual Studio 2019](https://visualstudio.microsoft.com/fr/vs).
 CMake installer can be downloaded from [the official website](https://cmake.org/download/).~~
 
-Building with newer versions of MSVS (2019) should work too.
+Building with [Visual Studio 2017 Community Edition](https://www.visualstudio.com/vs/older-downloads/). should work too.
 
+### How to build
+
+You have to build the dependancies (in ./deps/build)
+```
+cmake .. -G "Visual Studio 16 2019" -A x64
+msbuild /m ALL_BUILD.vcxproj
+```
+
+and then build superslicer (in ./build):
+```
+cmake .. -G "Visual Studio 16 2019" -A x64 -DCMAKE_PREFIX_PATH="PATH_TO_SuperSlicer\deps\build\destdir\usr\local"
+msbuild /m /P:Configuration=Release INSTALL.vcxproj
+```
+You can also build it in visual studio, for that open the .sln.
+Note that you need to have `libgmp-10.dll` and `libmpfr-4.dll` next to your built superslicer. You can get them from any superslicer release.
+
+If you want to create the zipped release, you can follow this [script](https://github.com/supermerill/SuperSlicer/blob/master/.github/workflows/ccpp_win.yml).
+
+# Old doc, not up-to-date:
 
 ### Building the dependencies package yourself
 
@@ -125,45 +143,33 @@ intermediate files, which are not handled correctly by either `b2.exe` or possib
 
 # Noob guide (step by step)
 
-Install Visual Studio Community 2019 from
-visualstudio.microsoft.com/vs/
-Select all workload options for C++ 
+- Install Visual Studio Community 2019 from [visualstudio.microsoft.com/vs/](https://visualstudio.microsoft.com/vs/)
+- Select all workload options for C++ 
+- Install git for Windows from [gitforwindows.org](https://gitforwindows.org/) 
+  - download and run the exe accepting all defaults
+- Download `PrusaSlicer-master.zip` from github
+  - This example will use the directory c:\PrusaSlicer and unzipped to `c:\PrusaSlicer\PrusaSlicer-master\` so this will be the prefix for all the steps. Substitute your as required prefix.
+- Go to the Windows Start Menu and Click on "Visual Studio 2019" folder, then select the ->"x64 Native Tools Command Prompt" to open a command window
 
-Install git for Windows from
-gitforwindows.org
-download and run the exe accepting all defaults
+      cd c:\PrusaSlicer\PrusaSlicer-master\deps
+      mkdir build
+      cd build
+      cmake .. -G "Visual Studio 16 2019" -DDESTDIR="c:\PrusaSlicer\PrusaSlicer-master"
+      msbuild /m ALL_BUILD.vcxproj // This took 13.5 minutes on the following machine: core I7-7700K @ 4.2Ghz with 32GB main memory and 20min on an average laptop
+      cd c:\PrusaSlicer\PrusaSlicer-master\
+      mkdir build
+      cd build
+      cmake .. -G "Visual Studio 16 2019" -DCMAKE_PREFIX_PATH="c:\PrusaSlicer\PrusaSlicer-master\usr\local"
 
-download PrusaSlicer-master.zip from github
-I downloaded this to c:\PrusaSlicer and unzipped to c:\PrusaSlicer\PrusaSlicer-master\ so this will be my prefix for all my steps. Substitute your prefix.
+- Open Visual Studio for c++ development (VS asks this the first time you start it)
 
-Go to the Windows Start Menu and Click on "Visual Studio 2019" folder, then select the ->"x64 Native Tools Command Prompt" to open a command window
+`Open->Project/Solution` or `File->Open->Project/Solution` (depending on which dialog comes up first)
 
-cd c:\PrusaSlicer\PrusaSlicer-master\deps
+- Click on `c:\PrusaSlicer\PrusaSlicer-master\build\PrusaSlicer.sln`
 
-mkdir build
+`Debug->Start Debugging` or `Debug->Start Without debugging`
 
-cd build
+- PrusaSlicer should start. 
+- You're up and running!
 
-cmake .. -G "Visual Studio 16 2019" -DDESTDIR="c:\PrusaSlicer\PrusaSlicer-master"
-
-msbuild /m ALL_BUILD.vcxproj // This took 13.5 minutes on my machine: core I7-7700K @ 4.2Ghz with 32GB main memory and 20min on a average laptop
-
-cd c:\PrusaSlicer\PrusaSlicer-master\
-
-mkdir build
-
-cd build
-
-cmake .. -G "Visual Studio 16 2019" -DCMAKE_PREFIX_PATH="c:\PrusaSlicer\PrusaSlicer-master\usr\local"
-
-open Visual Studio for c++ development (VS asks this the first time you start it)
-
-Open->Project/Solution or File->Open->Project/Solution (depending on which dialog comes up first)
-
-click on c:\PrusaSlicer\PrusaSlicer-master\build\PrusaSlicer.sln
-
-Debug->Start Debugging or Debug->Start Without debugging
-PrusaSlicer should start. You're up and running!
-
-
-note: Thanks to @douggorgen for the original guide, as an answer for a issue 
+Note: Thanks to @douggorgen for the original guide, as an answer for a issue 

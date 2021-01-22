@@ -2,26 +2,26 @@
 #define slic3r_GCode_hpp_
 
 #include "libslic3r.h"
+#include "EdgeGrid.hpp"
 #include "ExPolygon.hpp"
 #include "GCodeWriter.hpp"
 #include "Layer.hpp"
-#include "MotionPlanner.hpp"
 #include "Point.hpp"
-#include "PlaceholderParser.hpp"
 #include "Print.hpp"
+#include "PlaceholderParser.hpp"
 #include "PrintConfig.hpp"
+#include "GCode/AvoidCrossingPerimeters.hpp"
 #include "GCode/CoolingBuffer.hpp"
+#include "GCode/FanMover.hpp"
 #include "GCode/SpiralVase.hpp"
 #include "GCode/ToolOrdering.hpp"
 #include "GCode/WipeTower.hpp"
-#include "GCodeTimeEstimator.hpp"
-#include "EdgeGrid.hpp"
-#include "GCode/Analyzer.hpp"
-#if ENABLE_THUMBNAIL_GENERATOR
+#include "GCode/SeamPlacer.hpp"
+#include "GCode/GCodeProcessor.hpp"
 #include "GCode/ThumbnailData.hpp"
-#endif // ENABLE_THUMBNAIL_GENERATOR
 
 #include <memory>
+#include <map>
 #include <string>
 
 #ifdef HAS_PRESSURE_EQUALIZER
@@ -32,36 +32,10 @@ namespace Slic3r {
 
 // Forward declarations.
 class GCode;
-class GCodePreviewData;
 
-class AvoidCrossingPerimeters {
-public:
-    
-    // this flag triggers the use of the external configuration space
-    bool use_external_mp;
-    bool use_external_mp_once;  // just for the next travel move
-    
-    // this flag disables avoid_crossing_perimeters just for the next travel move
-    // we enable it by default for the first travel move in print
-    bool disable_once;
-    
-    AvoidCrossingPerimeters() : use_external_mp(false), use_external_mp_once(false), disable_once(true) {}
-    ~AvoidCrossingPerimeters() {}
-
-    void reset() { m_external_mp.reset(); m_layer_mp.reset(); }
-	void init_external_mp(const Print &print);
-    void init_layer_mp(const ExPolygons &islands) { m_layer_mp = Slic3r::make_unique<MotionPlanner>(islands); }
-
-    Polyline travel_to(const GCode &gcodegen, const Point &point);
-
-    bool is_init() { return (use_external_mp || use_external_mp_once) ? m_external_mp.get() != nullptr : m_layer_mp.get() != nullptr; }
-private:
-    // For initializing the regions to avoid.
-	static Polygons collect_contours_all_layers(const PrintObjectPtrs& objects);
-
-    std::unique_ptr<MotionPlanner> m_external_mp;
-    std::unique_ptr<MotionPlanner> m_layer_mp;
-};
+namespace { struct Item; }
+struct PrintInstance;
+using PrintObjectPtrs = std::vector<PrintObject*>;
 
 class OozePrevention {
 public:
@@ -138,28 +112,38 @@ private:
     double                                                       m_last_wipe_tower_print_z = 0.f;
 };
 
-class GCode : ExtrusionVisitorConst {
+class ColorPrintColors
+{
+    static const std::vector<std::string> Colors;
+public:
+    static const std::vector<std::string>& get() { return Colors; }
+};
+
+class GCode : ExtrusionVisitorConst  {
 public:        
     GCode() : 
     	m_origin(Vec2d::Zero()),
         m_enable_loop_clipping(true), 
         m_enable_cooling_markers(false), 
         m_enable_extrusion_role_markers(false), 
-        m_enable_analyzer(false),
-        m_last_analyzer_extrusion_role(erNone),
+        m_last_processor_extrusion_role(erNone),
         m_layer_count(0),
         m_layer_index(-1), 
         m_layer(nullptr), 
         m_volumetric_speed(0),
         m_last_pos_defined(false),
         m_last_extrusion_role(erNone),
-        m_last_mm3_per_mm(GCodeAnalyzer::Default_mm3_per_mm),
-        m_last_width(GCodeAnalyzer::Default_Width),
-        m_last_height(GCodeAnalyzer::Default_Height),
+#if ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
+        m_last_width(0.0f),
+#endif // ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
+#if ENABLE_GCODE_VIEWER_DATA_CHECKING
+        m_last_mm3_per_mm(0.0),
+#if !ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
+        m_last_width(0.0f),
+#endif // !ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
+#endif // ENABLE_GCODE_VIEWER_DATA_CHECKING
         m_brim_done(false),
         m_second_layer_things_done(false),
-        m_normal_time_estimator(GCodeTimeEstimator::Normal),
-        m_silent_time_estimator(GCodeTimeEstimator::Silent),
         m_silent_time_estimator_enabled(false),
         m_last_obj_copy(nullptr, Point(std::numeric_limits<coord_t>::max(), std::numeric_limits<coord_t>::max())),
         m_last_too_small(ExtrusionRole::erNone)
@@ -168,11 +152,7 @@ public:
 
     // throws std::runtime_exception on error,
     // throws CanceledException through print->throw_if_canceled().
-#if ENABLE_THUMBNAIL_GENERATOR
-    void            do_export(Print* print, const char* path, GCodePreviewData* preview_data = nullptr, ThumbnailsGeneratorCallback thumbnail_cb = nullptr);
-#else
-    void            do_export(Print *print, const char *path, GCodePreviewData *preview_data = nullptr);
-#endif // ENABLE_THUMBNAIL_GENERATOR
+    void            do_export(Print* print, const char* path, GCodeProcessor::Result* result = nullptr, ThumbnailsGeneratorCallback thumbnail_cb = nullptr);
 
     // Exported for the helper classes (OozePrevention, Wipe) and for the Perl binding for unit tests.
     const Vec2d&    origin() const { return m_origin; }
@@ -185,6 +165,7 @@ public:
     const FullPrintConfig &config() const { return m_config; }
     const Layer*    layer() const { return m_layer; }
     GCodeWriter&    writer() { return m_writer; }
+    const GCodeWriter& writer() const { return m_writer; }
     PlaceholderParser& placeholder_parser() { return m_placeholder_parser; }
     const PlaceholderParser& placeholder_parser() const { return m_placeholder_parser; }
     // Process a template through the placeholder parser, collect error messages to be reported
@@ -217,11 +198,7 @@ public:
     };
 
 private:
-#if ENABLE_THUMBNAIL_GENERATOR
     void            _do_export(Print &print, FILE *file, ThumbnailsGeneratorCallback thumbnail_cb);
-#else
-    void            _do_export(Print &print, FILE *file);
-#endif //ENABLE_THUMBNAIL_GENERATOR
 
     static std::vector<LayerToPrint>        		                   collect_layers_to_print(const PrintObject &object);
     static std::vector<std::pair<coordf_t, std::vector<LayerToPrint>>> collect_layers_to_print(const Print &print);
@@ -237,7 +214,8 @@ private:
         const std::vector<const PrintInstance*> *ordering,
         // If set to size_t(-1), then print all copies of all objects.
         // Otherwise print a single copy of a single object.
-        const size_t                     single_object_idx = size_t(-1));
+        size_t                     single_object_idx = size_t(-1)
+        );
 
     void            set_last_pos(const Point &pos) { m_last_pos = pos; m_last_pos_defined = true; }
     bool            last_pos_defined() const { return m_last_pos_defined; }
@@ -261,7 +239,7 @@ private:
     std::string     extrude_multi_path3D(const ExtrusionMultiPath3D &multipath, const std::string &description, double speed = -1.);
     std::string     extrude_path(const ExtrusionPath &path, const std::string &description, double speed = -1.);
     std::string     extrude_path_3D(const ExtrusionPath3D &path, const std::string &description, double speed = -1.);
-    void            split_at_seam_pos(ExtrusionLoop &loop, std::unique_ptr<EdgeGrid::Grid> *lower_layer_edge_grid);
+    void            split_at_seam_pos(ExtrusionLoop &loop, std::unique_ptr<EdgeGrid::Grid> *lower_layer_edge_grid, bool was_clockwise);
 
     // Extruding multiple objects with soluble / non-soluble / combined supports
     // on a multi-material printer, trying to minimize tool switches.
@@ -281,13 +259,17 @@ private:
                 ExtrusionEntitiesPtr perimeters;
             	// Non-owned references to LayerRegion::fills::entities
                 ExtrusionEntitiesPtr infills;
+                // Non-owned references to LayerRegion::ironing::entities
+                ExtrusionEntitiesPtr ironings;
 
                 std::vector<const WipingExtrusions::ExtruderPerCopy*> infills_overrides;
                 std::vector<const WipingExtrusions::ExtruderPerCopy*> perimeters_overrides;
+                std::vector<const WipingExtrusions::ExtruderPerCopy*> ironings_overrides;
 
 	            enum Type {
 	            	PERIMETERS,
-	            	INFILL,
+                    INFILL,
+                    IRONING,
 	            };
 
                 // Appends perimeter/infill entities and writes don't indices of those that are not to be extruder as part of perimeter/infill wiping
@@ -327,7 +309,8 @@ private:
 		const size_t                     				 single_object_instance_idx);
 
     std::string     extrude_perimeters(const Print &print, const std::vector<ObjectByExtruder::Island::Region> &by_region, std::unique_ptr<EdgeGrid::Grid> &lower_layer_edge_grid);
-    std::string     extrude_infill(const Print &print, const std::vector<ObjectByExtruder::Island::Region> &by_region, bool is_infill_first);
+    std::string     extrude_infill(const Print& print, const std::vector<ObjectByExtruder::Island::Region>& by_region, bool is_infill_first);
+    std::string     extrude_ironing(const Print& print, const std::vector<ObjectByExtruder::Island::Region>& by_region);
     std::string     extrude_support(const ExtrusionEntityCollection &support_fills);
 
     std::string     travel_to(const Point &point, ExtrusionRole role, std::string comment);
@@ -336,6 +319,9 @@ private:
     std::string     unretract() { return m_writer.unlift() + m_writer.unretract(); }
     std::string     set_extruder(unsigned int extruder_id, double print_z, bool no_toolchange = false);
 
+    // Cache for custom seam enforcers/blockers for each layer.
+    SeamPlacer                          m_seam_placer;
+
     /* Origin of print coordinates expressed in unscaled G-code coordinates.
        This affects the input arguments supplied to the extrude*() and travel_to()
        methods. */
@@ -343,8 +329,10 @@ private:
     FullPrintConfig                     m_config;
     GCodeWriter                         m_writer;
     PlaceholderParser                   m_placeholder_parser;
+    // For random number generator etc.
+    PlaceholderParser::ContextData      m_placeholder_parser_context;
     // Collection of templates, on which the placeholder substitution failed.
-    std::set<std::string>               m_placeholder_parser_failed_templates;
+    std::map<std::string, std::string>  m_placeholder_parser_failed_templates;
     OozePrevention                      m_ooze_prevention;
     Wipe                                m_wipe;
     AvoidCrossingPerimeters             m_avoid_crossing_perimeters;
@@ -356,11 +344,8 @@ private:
     // Markers for the Pressure Equalizer to recognize the extrusion type.
     // The Pressure Equalizer removes the markers from the final G-code.
     bool                                m_enable_extrusion_role_markers;
-    // Enableds the G-code Analyzer.
-    // Extended markers will be added during G-code generation.
-    // The G-code Analyzer will remove these comments from the final G-code.
-    bool                                m_enable_analyzer;
-    ExtrusionRole                       m_last_analyzer_extrusion_role;
+    // Keeps track of the last extrusion role passed to the processor
+    ExtrusionRole                       m_last_processor_extrusion_role;
     // How many times will change_layer() be called?
     // change_layer() will update the progress bar.
     unsigned int                        m_layer_count;
@@ -369,14 +354,22 @@ private:
     // Current layer processed. Insequential printing mode, only a single copy will be printed.
     // In non-sequential mode, all its copies will be printed.
     const Layer*                        m_layer;
-    std::map<const PrintObject*,Point>  m_seam_position;
     double                              m_volumetric_speed;
     // Support for the extrusion role markers. Which marker is active?
     ExtrusionRole                       m_last_extrusion_role;
-    // Support for G-Code Analyzer
+    // Support for G-Code Processor
+    float                               m_last_height{ 0.0f };
+    float                               m_last_layer_z{ 0.0f };
+    float                               m_max_layer_z{ 0.0f };
+#if ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
+    float                               m_last_width{ 0.0f };
+#endif // ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
+#if ENABLE_GCODE_VIEWER_DATA_CHECKING
     double                              m_last_mm3_per_mm;
-    float                               m_last_width;
-    float                               m_last_height;
+#if !ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
+    float                               m_last_width{ 0.0f };
+#endif // !ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
+#endif // ENABLE_GCODE_VIEWER_DATA_CHECKING
 
     Point                               m_last_pos;
     bool                                m_last_pos_defined;
@@ -402,18 +395,20 @@ private:
 
     // ordered list of object, to give them a unique id.
     std::vector<const PrintObject*> m_ordered_objects;
+    // gcode for the start/end of the current object block.
+    // as the retraction/unretraction can be written after the start/end of the algoruihtmblock, it has to be delayed.
+    std::string m_gcode_label_objects_start;
+    std::string m_gcode_label_objects_end;
+    void _add_object_change_labels(std::string &gcode);
 
-    // Time estimators
-    GCodeTimeEstimator m_normal_time_estimator;
-    GCodeTimeEstimator m_silent_time_estimator;
     bool m_silent_time_estimator_enabled;
 
-    // Analyzer
-    GCodeAnalyzer m_analyzer;
+    // Processor
+    GCodeProcessor m_processor;
 
     // Write a string into a file.
-    void _write(FILE* file, const std::string& what) { this->_write(file, what.c_str()); }
-    void _write(FILE* file, const char *what);
+    void _write(FILE* file, const std::string& what, bool flush = false) { this->_write(file, what.c_str(), flush); }
+    void _write(FILE* file, const char *what, bool flush = false);
 
     // Write a string into a file. 
     // Add a newline, if the string does not end with a newline already.
@@ -423,8 +418,9 @@ private:
     // Formats and write into a file the given data. 
     void _write_format(FILE* file, const char* format, ...);
 
-    //some post-processing on the file, before the analyzer
-    void _post_process(std::string& what);
+    //some post-processing on the file, with their data class
+    std::unique_ptr<FanMover> m_fan_mover;
+    void _post_process(std::string& what, bool flush = true);
 
     std::string _extrude(const ExtrusionPath &path, const std::string &description, double speed = -1);
     std::string _before_extrude(const ExtrusionPath &path, const std::string &description, double speed = -1);

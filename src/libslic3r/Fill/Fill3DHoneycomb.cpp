@@ -138,12 +138,12 @@ void Fill3DHoneycomb::_fill_surface_single(
     const FillParams                &params, 
     unsigned int                     thickness_layers,
     const std::pair<float, Point>   &direction, 
-    ExPolygon                       &expolygon, 
+    ExPolygon                        expolygon,
     Polylines                       &polylines_out) const
 {
     // no rotation is supported for this infill pattern
     BoundingBox bb = expolygon.contour.bounding_box();
-    coord_t     distance = coord_t(scale_(this->spacing) / params.density);
+    coord_t     distance = coord_t(scale_(this->get_spacing()) / params.density);
 
     // align bounding box to a multiple of our honeycomb grid module
     // (a module is 2*$distance since one $distance half-module is 
@@ -154,8 +154,8 @@ void Fill3DHoneycomb::_fill_surface_single(
     Polylines   polylines = makeGrid(
         scale_(this->z),
         distance,
-        ceil(bb.size().x() / distance) + 1,
-        ceil(bb.size().y() / distance) + 1,
+        (size_t)ceil(bb.size().x() / distance) + 1,
+        (size_t)ceil(bb.size().y() / distance) + 1,
 		size_t((this->layer_id / thickness_layers) % 2) + 1);
 	//makeGrid(coord_t z, coord_t gridSize, size_t gridWidth, size_t gridHeight, size_t curveType)
     
@@ -164,15 +164,13 @@ void Fill3DHoneycomb::_fill_surface_single(
 		pl.translate(bb.min);
 
     // clip pattern to boundaries, chain the clipped polylines
-    Polylines polylines_chained = chain_polylines(intersection_pl(polylines, to_polygons(expolygon)));
+    polylines = intersection_pl(polylines, to_polygons(expolygon));
 
     // connect lines if needed
-    if (! polylines_chained.empty()) {
-        if (params.dont_connect)
-            append(polylines_out, std::move(polylines_chained));
-        else
-            this->connect_infill(std::move(polylines_chained), expolygon, polylines_out, this->spacing, params);
-            }
-        }
+    if (params.connection == icNotConnected || polylines.size() <= 1)
+        append(polylines_out, chain_polylines(std::move(polylines)));
+    else
+        this->connect_infill(std::move(polylines), expolygon, polylines_out, this->get_spacing(), params);
+}
 
 } // namespace Slic3r

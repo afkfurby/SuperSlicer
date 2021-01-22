@@ -18,7 +18,7 @@ group:Horizontal shells
 group:Quality
 	line:Only one perimeter on Top surfaces
 		setting:label$ :only_one_perimeter_top
-		setting:label$Minimum width:min_width_top_surface
+		setting:label$Minimum width:sidetext_width$7:min_width_top_surface
 	end_line
 	line:Extra perimeters
 		setting:extra_perimeters_overhangs
@@ -28,6 +28,7 @@ group:Quality
 	line:Avoid crossing perimeters
 		setting:label$:avoid_crossing_perimeters
 		setting:label$Not on first layer:avoid_crossing_not_first_layer
+		setting:avoid_crossing_perimeters_max_detour
 	end_line
 	line:Overlapping external perimeter
 		setting:label$:thin_perimeters
@@ -39,28 +40,29 @@ group:Quality
 		setting:width$5:thin_walls_overlap
 		setting:thin_walls_merge
 	end_line
-group:Overhangs
-	line:On perimeters
-		setting:sidetext_width$1:overhangs
-		setting:width$5:overhangs_width
+group:label_width$12:Overhangs
+	line:threshold for
+		setting:label$Bridge speed and fan:width$5:sidetext_width$0:overhangs_width_speed
+		setting:label_width$12:label$Bridge flow:width$5:overhangs_width
 	end_line
 	line:Extrusion direction
-		setting:sidetext_width$1:overhangs_reverse
-		setting:width$5:overhangs_reverse_threshold
+		setting:sidetext_width$2:overhangs_reverse
+		setting:label_width$12:width$5:overhangs_reverse_threshold
 	end_line
 group:Advanced
-	setting:no_perimeter_unsupported_algo
+	setting:width$25:no_perimeter_unsupported_algo
 	line:Gap Fill
 		setting:gap_fill
 		setting:width$5:gap_fill_min_area
 	end_line
 	line:Seam
-		setting:seam_position
-		setting:seam_travel
+		setting:label_width$12:sidetext_width$0:seam_position
+		setting:width$3:sidetext_width$0:seam_angle_cost
+		setting:width$3:sidetext_width$0:seam_travel_cost
 	end_line
-	line:Looping perimeter
-		setting:perimeter_loop
-		setting:perimeter_loop_seam
+	line:One-loop perimeters
+		setting:sidetext_width$0:perimeter_loop
+		setting:label_width$5:label$Seam:perimeter_loop_seam
 	end_line
 group: External perimeter first
 	setting:label$Activate:external_perimeters_first
@@ -79,65 +81,84 @@ group:Filtering
 	setting:resolution
 	setting:model_precision
 	setting:slice_closing_radius
-group:label_width$8:Modifying slices
+group:Modifying slices
 	line:Curve smoothing
 		setting:width$6:curve_smoothing_precision
 		setting:width$6:curve_smoothing_angle_convex
 		setting:width$6:curve_smoothing_angle_concave
 		setting:width$6:curve_smoothing_cutoff_dist
 	end_line
-	setting:hole_to_polyhole
 	line:XY compensation
 		setting:width$6:xy_size_compensation
 		setting:width$6:xy_inner_size_compensation
 		setting:width$6:first_layer_size_compensation
+	end_line
+	line:Vertical Hole shrinking compensation
+		setting:hole_to_polyhole
 		setting:width$6:hole_size_compensation
+		setting:width$6:hole_size_threshold
 	end_line
 group:Other
 	setting:clip_multipart_objects
 	setting:allow_empty_layers
 
 page:Infill:infill
-group:Infill
-	line:Fill density
-		setting:label_width$5:label$_:fill_density
+group:title_width$8:Infill
+	line:Sparse
+		setting:width$5:label$_:sidetext_width$1:fill_density
+		setting:label_width$1:label$_:fill_pattern
+		setting:label$_:width$18:infill_connection
 	end_line
-	line:Pattern
-		setting:label_width$5:label$_:fill_pattern
-		setting:label$Don't connect:infill_not_connected
+	line:_
+		setting:label$Connection length:label_width$20:sidetext_width$7:width$12:infill_anchor_max
+		setting:label$Perimeter anchor:sidetext_width$7:width$12:infill_anchor
+		end_line
+	line:Solid
+		setting:label_width$11:label$_:solid_fill_pattern
+		setting:label$_:width$18:infill_connection_solid
 	end_line
-	line:External patterns
-		setting:label_width$5:top_fill_pattern
-		setting:label_width$5:bottom_fill_pattern
+	line:Top
+		setting:label_width$11:label$_:top_fill_pattern
+		setting:label$_:width$18:infill_connection_top
 	end_line
-	line:Solid pattern
-		setting:label_width$5:label$_:solid_fill_pattern
+	line:Bottom
+		setting:label_width$11:label$_:bottom_fill_pattern
+		setting:label$_:width$18:infill_connection_bottom
 	end_line
 group:Reducing printing time
 	setting:infill_every_layers
 	setting:infill_only_where_needed
 	line:Supporting dense layer
-		setting:infill_dense
-		setting:infill_dense_algo
+		setting:sidetext_width$0:infill_dense
+		setting:width$20:infill_dense_algo
 	end_line
 group:sidetext_width$3:Advanced
 	setting:solid_infill_every_layers
 	setting:solid_infill_below_area
 	line:Angle
-		setting:label_width$6:width$5:fill_angle
+		setting:label_width$8:width$5:fill_angle
 		setting:label_width$6:width$5:bridge_angle
 		setting:label_width$6:width$5:label$increment:fill_angle_increment
 	end_line
 	line:Anchor solid infill by X mm
-		setting:label_width$6:width$5:external_infill_margin
+		setting:label_width$8:width$5:external_infill_margin
 		setting:label_width$6:width$5:bridged_infill_margin
 	end_line
 	setting:only_retract_when_crossing_perimeters
 	setting:infill_first
-group:Advanced Infill
-	line:Ironing tuning
-		setting:label_width$6:width$5:sidetext_width$7:fill_smooth_width
-		setting:label_width$9:width$5:fill_smooth_distribution
+group:Advanced Infill options
+	line:Ironing infill tuning
+		setting:label_width$8:width$5:fill_smooth_distribution
+		setting:label_width$26:label$Spacing between ironing lines:width$5:sidetext_width$7:fill_smooth_width
+	end_line
+group:title_width$19:Ironing post-process (This will go on top of infills and perimeters)
+	line:Enable ironing post-process
+		setting:label$_:sidetext_width$0:ironing
+		setting:label$On:ironing_type
+	end_line
+	line:Tuning ironing
+		setting:label_width$9:width$5:ironing_flowrate
+		setting:label_width$26:width$5:ironing_spacing
 	end_line
 
 page:Skirt & Brim:skirt+brim
@@ -154,6 +175,7 @@ group:Brim
 	line:Brim ears
 		setting:brim_ears
 		setting:width$3:brim_ears_max_angle
+		setting:width$3:brim_ears_detection_length
 		setting:brim_ears_pattern
 	end_line
 	setting:brim_offset
@@ -169,7 +191,7 @@ group:Raft
 	setting:raft_layers
 group:Options for support material and raft
 	line:Z-offset
-		setting:width$12:support_material_contact_distance_type
+		setting:width$11:support_material_contact_distance_type
 		setting:width$6:support_material_contact_distance_top
 		setting:width$6:support_material_contact_distance_bottom
 	end_line
@@ -188,11 +210,10 @@ group:Options for support material interface
 	setting:support_material_interface_contact_loops
 
 page:Speed:time
-group:label_width$8:Speed for print moves
+group:label_width$8:sidetext_width$7:Speed for print moves
 	line:Perimeter speed
 		setting:width$4:perimeter_speed
 		setting:width$4:external_perimeter_speed
-		setting:width$4:small_perimeter_speed
 	end_line
 	line:Infill speed
 		setting:width$4:infill_speed
@@ -204,19 +225,26 @@ group:label_width$8:Speed for print moves
 		setting:width$4:support_material_interface_speed
 	end_line
 	line:Bridge speed
-		setting:label$_:width$4:bridge_speed
+		setting:width$4:bridge_speed
+		setting:width$4:bridge_speed_internal
+		setting:width$4:overhangs_speed
 	end_line
 	line:Thin extrusions speed
 		setting:width$4:gap_fill_speed
 		setting:width$4:thin_walls_speed
 	end_line
+	setting:label$Ironing post-process speed:label_width$30:width$4:ironing_speed
 group:Speed for non-print moves
 	setting:travel_speed
-group:Modifiers
+group:sidetext_width$7:Modifiers
 	line:First layer speed
 		setting:label_width$8:width$4:first_layer_speed
 		setting:label_width$8:width$4:first_layer_infill_speed
 	end_line
+	line:Small perimeter speed
+		setting:label_width$8:width$4:small_perimeter_min_length
+		setting:label_width$8:width$4:small_perimeter_max_length
+		setting:label_width$8:width$4:small_perimeter_speed
 group:Acceleration control (advanced)
 	setting:perimeter_acceleration
 	setting:infill_acceleration
@@ -224,8 +252,8 @@ group:Acceleration control (advanced)
 	setting:first_layer_acceleration
 	setting:default_acceleration
 group:Autospeed (advanced)
+	setting:label$Volumetric speed for Autospeed:max_volumetric_speed
 	setting:max_print_speed
-	setting:max_volumetric_speed
 
 page:Width & Flow:width
 group:Extrusion width
@@ -241,10 +269,11 @@ group:Extrusion width
 	recommended_extrusion_width_description
 group:Overlap
 	line:Perimeter overlap
+		setting:label$Default:perimeter_overlap
 		setting:label$External:external_perimeter_overlap
-		setting:label$Inner:perimeter_overlap
+		setting:label$Gap Fill:gap_fill_overlap
 	end_line
-	setting:infill_overlap
+	setting:sidetext_width$7:infill_overlap
 	setting:bridge_overlap
 group:Flow
 	line:Flow ratio

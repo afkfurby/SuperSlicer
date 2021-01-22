@@ -1,8 +1,12 @@
 #include "CalibrationBridgeDialog.hpp"
 #include "I18N.hpp"
+#include "libslic3r/Model.hpp"
 #include "libslic3r/Utils.hpp"
+#include "libslic3r/AppConfig.hpp"
+#include "Jobs/ArrangeJob.hpp"
 #include "GUI.hpp"
 #include "GUI_ObjectList.hpp"
+#include "Plater.hpp"
 #include "Tab.hpp"
 #include <wx/scrolwin.h>
 #include <wx/display.h>
@@ -37,7 +41,7 @@ void CalibrationBridgeDialog::create_buttons(wxStdDialogButtonSizer* buttons){
     buttons->Add(new wxStaticText(this, wxID_ANY, wxString{ "nb tests:" }));
     buttons->Add(nb_tests);
     buttons->AddSpacer(40);
-    wxButton* bt = new wxButton(this, wxID_FILE1, _(L("Test Flow Ratio")));
+    wxButton* bt = new wxButton(this, wxID_FILE1, _L("Test Flow Ratio"));
     bt->Bind(wxEVT_BUTTON, &CalibrationBridgeDialog::create_geometry_flow_ratio, this);
     buttons->Add(bt);
     //buttons->AddSpacer(15);
@@ -50,6 +54,12 @@ void CalibrationBridgeDialog::create_geometry(std::string setting_to_test, bool 
     Plater* plat = this->main_frame->plater();
     Model& model = plat->model();
     plat->reset();
+
+    bool autocenter = gui_app->app_config->get("autocenter") == "1";
+    if (autocenter) {
+        //disable auto-center for this calibration.
+        gui_app->app_config->set("autocenter", "0");
+    }
 
     int idx_steps = steps->GetSelection();
     int idx_nb = nb_tests->GetSelection();
@@ -84,22 +94,25 @@ void CalibrationBridgeDialog::create_geometry(std::string setting_to_test, bool 
     int start = bridge_flow_ratio->value;
     float zshift = 2.3 * (1 - z_scale);
     for (size_t i = 0; i < nb_items; i++) {
-        if((start + (add ? 1 : -1) * i * step) < 180 && start + (start + (add ? 1 : -1) * i * step) > 20)
+        if((start + (add ? 1 : -1) * i * step) < 180 && (start + (add ? 1 : -1) * i * step) > 20)
             add_part(model.objects[objs_idx[i]], Slic3r::resources_dir() + "/calibration/bridge_flow/f"+std::to_string(start + (add ? 1 : -1) * i * step)+".amf", Vec3d{ -10,0, zshift + 4.6 * z_scale }, Vec3d{ 1,1,z_scale });
     }
 
     /// --- translate ---;
+    bool has_to_arrange = false;
+    const float brim_width = std::max(print_config->option<ConfigOptionFloat>("brim_width")->value, nozzle_diameter * 5.);
     const ConfigOptionFloat* extruder_clearance_radius = print_config->option<ConfigOptionFloat>("extruder_clearance_radius");
     const ConfigOptionPoints* bed_shape = printer_config->option<ConfigOptionPoints>("bed_shape");
-    const float brim_width = std::max(print_config->option<ConfigOptionFloat>("brim_width")->value, nozzle_diameter * 5.);
     Vec2d bed_size = BoundingBoxf(bed_shape->values).size();
     Vec2d bed_min = BoundingBoxf(bed_shape->values).min;
-    float offsety = 2 + 10 * 1 + extruder_clearance_radius->value + brim_width + (brim_width> extruder_clearance_radius->value ? brim_width - extruder_clearance_radius->value :0);
+    float offsety = 2 + 10 * 1 + extruder_clearance_radius->value + brim_width + (brim_width > extruder_clearance_radius->value ? brim_width - extruder_clearance_radius->value : 0);
     model.objects[objs_idx[0]]->translate({ bed_min.x() + bed_size.x() / 2, bed_min.y() + bed_size.y() / 2, 0 });
     for (int i = 1; i < nb_items; i++) {
-        model.objects[objs_idx[i]]->translate({ bed_min.x() + bed_size.x() / 2, bed_min.y() + bed_size.y() / 2 + (i%2==0?-1:1) * offsety * ((i+1)/2), 0 });
+        model.objects[objs_idx[i]]->translate({ bed_min.x() + bed_size.x() / 2, bed_min.y() + bed_size.y() / 2 + (i % 2 == 0 ? -1 : 1) * offsety * ((i + 1) / 2), 0 });
     }
-    //TODO: if not enough space, forget about complete_objects
+    // if not enough space, forget about complete_objects
+    if (bed_size.y() < offsety * (nb_items + 1))
+        has_to_arrange = true;
 
 
     /// --- main config, please modify object config when possible ---
@@ -132,9 +145,25 @@ void CalibrationBridgeDialog::create_geometry(std::string setting_to_test, bool 
     ObjectList* obj = this->gui_app->obj_list();
     obj->update_after_undo_redo();
 
+    // arrange if needed, after new settings, to take them into account
+    if (has_to_arrange) {
+        //update print config (done at reslice but we need it here)
+        if (plat->printer_technology() == ptFFF)
+            plat->fff_print().apply(plat->model(), *plat->config());
+        std::shared_ptr<ProgressIndicatorStub> fake_statusbar = std::make_shared<ProgressIndicatorStub>();
+        ArrangeJob arranger(std::dynamic_pointer_cast<ProgressIndicator>(fake_statusbar), plat);
+        arranger.prepare_all();
+        arranger.process();
+        arranger.finalize();
+    }
 
     plat->reslice();
     plat->select_view_3D("Preview");
+
+    if (autocenter) {
+        //re-enable auto-center after this calibration.
+        gui_app->app_config->set("autocenter", "1");
+    }
 }
 
 } // namespace GUI
